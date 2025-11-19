@@ -1,4 +1,5 @@
 #include <TFT_eSPI.h>
+#include <Preferences.h>
 #include "touch.h"
 #include "bluetooth.h"
 #include "commands.h"
@@ -11,9 +12,18 @@
 
 bool TESTMODE = true;
 
+/*
+    Variables for settings stored in flash memory
+*/
+uint32_t outlineColor = GAUGE_FG_COLOR;
+uint32_t needleColor = NEEDLE_COLOR_PRIMARY;
+uint32_t valueColor = VALUE_TEXT_COLOR;
+int currentGauge = 0;
+float mpuCalibrationMatrix[3][3]; // 3x3 rotation matrix obtained when statically calibrating the MPU-6050
+
+Preferences preferences;
 TFT_eSPI display = TFT_eSPI();
 Gauge* gauges[7];
-int currentGauge = 0;
 TaskHandle_t dataTaskHandle;
 SemaphoreHandle_t gaugeMutex;
 unsigned long lastTouchTime = 0;
@@ -23,6 +33,9 @@ bool inOptionsScreen = false;
 
 void setup() {
     Serial.begin(115200);
+
+    readSettings();
+
     display.begin();
     display.setRotation(3);
     touch_init(DISPLAY_WIDTH, DISPLAY_HEIGHT, display.getRotation());
@@ -46,20 +59,61 @@ void setup() {
     }
 
     gaugeMutex = xSemaphoreCreateMutex();
-    gauges[0] = new NeedleGauge(&display, 0); // RPM    (Actual)
-    gauges[1] = new NeedleGauge(&display, 1); // Boost  (Approximate)
-    gauges[2] = new NeedleGauge(&display, 2); // Torque (Approximate)
-    gauges[3] = new NeedleGauge(&display, 3); // Horsepower (Approximate)
-    gauges[4] = new DualGauge(&display, 0);
+    gauges[0] = new NeedleGauge(&display, 0, outlineColor, needleColor, valueColor); // RPM    (Actual)
+    gauges[1] = new NeedleGauge(&display, 1, outlineColor, needleColor, valueColor); // Boost  (Approximate)
+    gauges[2] = new NeedleGauge(&display, 2, outlineColor, needleColor, valueColor); // Torque (Approximate)
+    gauges[3] = new NeedleGauge(&display, 3, outlineColor, needleColor, valueColor); // Horsepower (Approximate)
+    gauges[4] = new DualGauge(&display, 0, outlineColor, needleColor, valueColor);
     gauges[5] = new GMeter(&display);
     gauges[6] = new AccelerationMeter(&display);
 
-    gauges[obdConnected ? 0 : 5]->initialize();
     if (!obdConnected) {
         currentGauge = 5;
     }
+    gauges[currentGauge]->initialize();
 
     xTaskCreatePinnedToCore(dataFetchingTask, "DataFetching", 10000, NULL, 1, &dataTaskHandle, 0);
+}
+
+void readSettings() {
+    // Initialize preferences
+    preferences.begin("OBDGAUGE", false);
+
+    // Try to get stored settings
+    outlineColor = preferences.getUInt("outlineColor", GAUGE_FG_COLOR);
+    needleColor = preferences.getUInt("needleColor", NEEDLE_COLOR_PRIMARY);
+    valueColor = preferences.getUInt("valueColor", VALUE_TEXT_COLOR);
+    currentGauge = preferences.getInt("currentGauge", 0);
+
+    // Close preferences
+    preferences.end();
+    return;
+}
+
+void updateCurrentGaugeSettings(int newCurrentGauge) {
+    // Initialize preferences
+    preferences.begin("OBDGAUGE", false);
+
+    // Set new settings 
+    preferences.putInt("currentGauge", newCurrentGauge);
+
+    // Close preferences
+    preferences.end();
+    return;
+}
+
+void updateCurrentGaugeColorSettings(uint32_t currNeedleColor, uint32_t currOutlineColor, uint32_t currValueColor) {
+    // Initialize preferences
+    preferences.begin("OBDGAUGE", false);
+
+    // Set new settings 
+    preferences.putUInt("needleColor", currNeedleColor);
+    preferences.putUInt("outlineColor", currOutlineColor);
+    preferences.putUInt("valueColor", currValueColor);
+
+    // Close preferences
+    preferences.end();
+    return;
 }
 
 void dataFetchingTask(void* parameter) {
@@ -209,8 +263,8 @@ void loop() {
         //}
     }
 
-    // Limit to ~100 FPS
-    delay(10);
+    // Limit to ~200 FPS
+    //delay(250);
 }
 
 void switchToNextGauge() {
@@ -221,6 +275,10 @@ void switchToNextGauge() {
         currentGauge = 4; // Stay on GMeter if OBD not connected
     }
     gauges[currentGauge]->initialize();
+
+    // Update preferences
+    updateCurrentGaugeSettings(currentGauge);
+
     xSemaphoreGive(gaugeMutex);
 }
 
@@ -244,5 +302,16 @@ void exitOptions() {
     inOptionsScreen = false;
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
     gauges[currentGauge]->initialize();
+
+    Gauge::GaugeType gaugeType = gauges[currentGauge]->getType();
+
+    if (gaugeType != Gauge::ACCELERATION_METER && gaugeType != Gauge::G_METER) {
+        // Store new preferences when exiting options screen only for needle and dual gauges
+        uint32_t currNeedleColor = gauges[currentGauge]->getCurrentNeedleColor();
+        uint32_t currOutlineColor = gauges[currentGauge]->getCurrentOutlineColor();
+        uint32_t currValueColor = gauges[currentGauge]->getCurrentValueColor();
+        updateCurrentGaugeColorSettings(currNeedleColor, currOutlineColor, currValueColor);
+    }
+
     xSemaphoreGive(gaugeMutex);
 }

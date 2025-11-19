@@ -93,6 +93,18 @@ public:
         return ACCELERATION_METER;
     }
 
+    uint32_t getCurrentNeedleColor() {
+        return 0;
+    }
+
+    uint32_t getCurrentOutlineColor() {
+        return 0;
+    }
+
+    uint32_t getCurrentValueColor() {
+        return 0;
+    }
+
 private:
     TFT_eSprite time, speed, timeLabel, speedLabel, message;
     double timeValue, startValue, endValue, latestSpeed, previousSpeed;

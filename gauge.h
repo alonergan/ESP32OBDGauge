@@ -21,6 +21,9 @@ public:
     virtual void displayStats(float fps, double frameAvg, double queryAvg) = 0;
     virtual GaugeType getType() const = 0;
     virtual void reset() = 0;
+    virtual uint32_t getCurrentNeedleColor() = 0;
+    virtual uint32_t getCurrentOutlineColor() = 0;
+    virtual uint32_t getCurrentValueColor() = 0;
 
 protected:
     TFT_eSPI* display;

@@ -5,7 +5,7 @@
 
 class DualGauge : public Gauge {
 public:
-    DualGauge(TFT_eSPI* display, int gaugeType) : 
+    DualGauge(TFT_eSPI* display, int gaugeType, uint32_t outlineColor, uint32_t needleColor, uint32_t valueColor) : 
     Gauge(display),
     gaugeOutlineLeft(display),
     gaugeOutlineRight(display),
@@ -28,9 +28,9 @@ public:
     valueTypeRight(gaugeTypes[gaugeType + 1][4]),
     targetValueLeft(0.0),
     targetValueRight(0.0),
-    outlineColor(GAUGE_FG_COLOR),
-    needleColor(NEEDLE_COLOR_PRIMARY),
-    valueColor(VALUE_TEXT_COLOR) {}
+    needleColor(needleColor),
+    outlineColor(outlineColor),
+    valueColor(valueColor) {}
 
     void initialize() override {
       // Clear screen
@@ -116,6 +116,18 @@ public:
 
     GaugeType getType() const override {
         return DUAL_GAUGE;
+    }
+
+    uint32_t getCurrentNeedleColor() {
+        return needleColor;
+    }
+
+    uint32_t getCurrentOutlineColor() {
+        return outlineColor;
+    }
+
+    uint32_t getCurrentValueColor() {
+        return valueColor;
     }
 
 private:

@@ -12,6 +12,7 @@
 */
 #define BUTTON_PIN 14
 
+
 /*
   Bluetooth config
 */
@@ -28,7 +29,6 @@
 #define DISPLAY_CENTER_X DISPLAY_WIDTH / 2
 #define DISPLAY_CENTER_Y DISPLAY_HEIGHT / 2
 #define DISPLAY_BG_COLOR TFT_BLACK
-#define TFT_TRANSPARENT TFT_BLACK
 #define FONT_NORMAL_8 &AudiType_Normal_038pt7b
 #define FONT_NORMAL_12 &AudiType_Normal_0312pt7b
 #define FONT_NORMAL_14 &AudiType_Normal_0314pt7b

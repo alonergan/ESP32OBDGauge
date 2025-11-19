@@ -50,7 +50,7 @@ public:
         createTextSprite(minY, "0.00");
         createTextSprite(maxY, "0.00");
 
-        combined.pushSprite(outlineX, outlineY);
+        combined.pushSprite(outlineX, outlineY, TFT_TRANSPARENT);
         pushCenteredSprite(minX, outlineX + GMETER_WIDTH + GMETER_TEXT_OFFSET_X, gaugeCenterY);
         pushCenteredSprite(maxX, outlineX - GMETER_TEXT_OFFSET_X, gaugeCenterY);
         pushCenteredSprite(minY, gaugeCenterX, outlineY - GMETER_TEXT_OFFSET_Y);
@@ -119,6 +119,18 @@ public:
         return G_METER;
     }
 
+    uint32_t getCurrentNeedleColor() {
+        return 0;
+    }
+
+    uint32_t getCurrentOutlineColor() {
+        return 0;
+    }
+
+    uint32_t getCurrentValueColor() {
+        return 0;
+    }
+
 private:
     Adafruit_MPU6050 mpu;
     TFT_eSprite combined, history, maxX, maxY, minX, minY;
@@ -144,13 +156,13 @@ private:
         sprite.setColorDepth(8);
         sprite.setTextFont(GMETER_TEXT_FONT);
         sprite.setTextSize(GMETER_TEXT_SIZE);
-        sprite.setTextColor(GMETER_TEXT_COLOR, TFT_TRANSPARENT);
+        sprite.setTextColor(GMETER_TEXT_COLOR);
         int textWidth = sprite.textWidth("0.00");
         int textHeight = sprite.fontHeight();
         if (!sprite.createSprite(textWidth + 10, textHeight + 10)) {
             Serial.println("FAILED TO CREATE TEXT SPRITE");
         }
-        sprite.fillSprite(TFT_TRANSPARENT);
+        sprite.fillSprite(DISPLAY_BG_COLOR);
         sprite.setCursor((sprite.height() - textHeight) / 2, (sprite.width() - textWidth) / 2);
         sprite.println(text);
     }
@@ -194,7 +206,7 @@ private:
 
     void updateTextSprite(TFT_eSprite& sprite, String text) {
         //Serial.printf("Updating text sprite at address: %p\n", sprite);
-        sprite.fillSprite(TFT_TRANSPARENT);
+        sprite.fillSprite(DISPLAY_BG_COLOR);
         int textWidth = sprite.textWidth(text);
         int textHeight = sprite.fontHeight();
         sprite.setCursor((sprite.height() - textHeight) / 2, (sprite.width() - textWidth) / 2);
