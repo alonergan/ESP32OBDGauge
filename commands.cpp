@@ -152,3 +152,23 @@ double Commands::getReading(int selectedReading) {
             return 0.0;
     }
 }
+
+struct dualGaugeReading Commands::getDualReading() {
+    struct dualGaugeReading x;
+    x.readings[0] = 0.0;
+    x.readings[1] = 0.0;
+
+    if (!connected || pWriteChar == nullptr) {
+        return x;
+    }
+
+    // Get RPM, Reference Torque, and Torque
+    double rpm = query(0);
+    double refTorque = query(3);
+    double actTorque = query(4);
+    double torque = (refTorque * (actTorque / 100.0));
+    double hp = ((refTorque * (actTorque / 100.0)) * rpm) / 5252.0;
+    x.readings[0] = torque;
+    x.readings[1] = hp;
+    return x;
+}

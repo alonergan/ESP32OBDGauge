@@ -3,6 +3,10 @@
 
 #include "bluetooth.h"
 
+struct dualGaugeReading {
+    double readings[2];
+};
+
 class Commands {
 private:
     int A;
@@ -14,6 +18,7 @@ private:
 public:
     Commands();
     double getReading(int selectedGauge);
+    struct dualGaugeReading getDualReading();
     void initializeOBD();
     String sendCommand(String pid);
 };

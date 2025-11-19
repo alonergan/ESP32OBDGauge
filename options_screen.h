@@ -31,7 +31,6 @@ public:
                 for (int j = 0; j < 2; j++) {
                     int bx = BUTTON_MARGIN + j * (BUTTON_WIDTH + BUTTON_SPACING);
                     int by = BUTTON_MARGIN + i * (BUTTON_HEIGHT + BUTTON_SPACING);
-                    Serial.printf("handleTouch() - x: %.1d, y: %.1d, bx: %.1d, by: %.1d\n", x, y, bx, by);
                     if (x >= bx && x < bx + BUTTON_WIDTH && y >= by && y < by + BUTTON_HEIGHT) {
                         if (i == 0 && j == 0) { // Gauge settings
                             state = ABOUT;
@@ -314,6 +313,10 @@ private:
             if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) {
                 static_cast<NeedleGauge*>(gauges[i])->setNeedleColor(color);
             }
+
+            if (gauges[i]->getType() == Gauge::DUAL_GAUGE) {
+                static_cast<DualGauge*>(gauges[i])->setNeedleColor(color);
+            }
         }
     }
 
@@ -321,6 +324,10 @@ private:
         for (int i = 0; i < numGauges; i++) {
             if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) {
                 static_cast<NeedleGauge*>(gauges[i])->setOutlineColor(color);
+            }
+ 
+            if (gauges[i]->getType() == Gauge::DUAL_GAUGE) {
+                static_cast<DualGauge*>(gauges[i])->setOutlineColor(color);
             }
         }
     }
@@ -330,6 +337,10 @@ private:
             if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) {
                 static_cast<NeedleGauge*>(gauges[i])->setValueColor(color);
             }
+
+            if (gauges[i]->getType() == Gauge::DUAL_GAUGE) {
+                static_cast<DualGauge*>(gauges[i])->setValueColor(color);
+            }            
         }
     }
 };
