@@ -9,6 +9,7 @@
 #include "acceleration_meter.h"
 #include "options_screen.h"
 #include "config.h"
+#include "screen_manager.h"
 
 bool TESTMODE = true;
 
@@ -23,7 +24,10 @@ float mpuCalibrationMatrix[3][3]; // 3x3 rotation matrix obtained when staticall
 
 Preferences preferences;
 TFT_eSPI display = TFT_eSPI();
-Gauge* gauges[7];
+const int GAUGE_COUNT = 7;
+const int FALLBACK_GAUGE_INDEX = 5;
+Gauge* gauges[GAUGE_COUNT];
+ScreenManager screenManager;
 TaskHandle_t dataTaskHandle;
 SemaphoreHandle_t gaugeMutex;
 unsigned long lastTouchTime = 0;
@@ -68,9 +72,11 @@ void setup() {
     gauges[6] = new AccelerationMeter(&display);
 
     if (!obdConnected) {
-        currentGauge = 5;
+        currentGauge = FALLBACK_GAUGE_INDEX;
     }
-    gauges[currentGauge]->initialize();
+
+    screenManager.initialize(gauges, GAUGE_COUNT, currentGauge);
+    screenManager.getCurrentGauge()->initialize();
 
     xTaskCreatePinnedToCore(dataFetchingTask, "DataFetching", 10000, NULL, 1, &dataTaskHandle, 0);
 }
@@ -128,7 +134,7 @@ void dataFetchingTask(void* parameter) {
     while (true) {
         int gaugeIndex;
         xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-        gaugeIndex = currentGauge;
+        gaugeIndex = screenManager.getCurrentGaugeIndex();
         xSemaphoreGive(gaugeMutex);
 
         Gauge* gauge = gauges[gaugeIndex];
@@ -172,7 +178,7 @@ void dataFetchingTask(void* parameter) {
                 break;
             case Gauge::ACCELERATION_METER:
                 if (obdConnected) {
-                    double speed = commands.getReading(3); // Speed for AccelerationMeter
+                    double speed = commands.getReading(5); // Speed for AccelerationMeter
                     AccelerationMeter* am = static_cast<AccelerationMeter*>(gauge);
                     am->setSpeed(speed);
                     vTaskDelay(100 / portTICK_PERIOD_MS); // 10Hz
@@ -253,7 +259,10 @@ void loop() {
     // Render
     if (!inOptionsScreen) {
         xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-        gauges[currentGauge]->render(0.0);
+        Gauge* current = screenManager.getCurrentGauge();
+        if (current != nullptr) {
+            current->render(0.0);
+        }
         xSemaphoreGive(gaugeMutex);
         //if (obdConnected) {
             //display.drawRect(0, 0, 10, 10, TFT_GREEN);
@@ -269,28 +278,29 @@ void loop() {
 
 void switchToNextGauge() {
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-    if (obdConnected) {
-        currentGauge = (currentGauge + 1) % 7;
-    } else {
-        currentGauge = 4; // Stay on GMeter if OBD not connected
+    screenManager.moveNext(obdConnected, FALLBACK_GAUGE_INDEX);
+    currentGauge = screenManager.getCurrentGaugeIndex();
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current != nullptr) {
+        current->initialize();
     }
-    gauges[currentGauge]->initialize();
 
-    // Update preferences
     updateCurrentGaugeSettings(currentGauge);
-
     xSemaphoreGive(gaugeMutex);
 }
 
 void resetGauge() {
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-    gauges[currentGauge]->reset();
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current != nullptr) {
+        current->reset();
+    }
     xSemaphoreGive(gaugeMutex);
 }
 
 void showOptions() {
     inOptionsScreen = true;
-    optionsScreen = new OptionsScreen(&display, gauges, 5);
+    optionsScreen = new OptionsScreen(&display, gauges, GAUGE_COUNT);
     optionsScreen->initialize();
 }
 
@@ -301,15 +311,20 @@ void exitOptions() {
     }
     inOptionsScreen = false;
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-    gauges[currentGauge]->initialize();
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current == nullptr) {
+        xSemaphoreGive(gaugeMutex);
+        return;
+    }
+    current->initialize();
 
-    Gauge::GaugeType gaugeType = gauges[currentGauge]->getType();
+    Gauge::GaugeType gaugeType = current->getType();
 
     if (gaugeType != Gauge::ACCELERATION_METER && gaugeType != Gauge::G_METER) {
         // Store new preferences when exiting options screen only for needle and dual gauges
-        uint32_t currNeedleColor = gauges[currentGauge]->getCurrentNeedleColor();
-        uint32_t currOutlineColor = gauges[currentGauge]->getCurrentOutlineColor();
-        uint32_t currValueColor = gauges[currentGauge]->getCurrentValueColor();
+        uint32_t currNeedleColor = current->getCurrentNeedleColor();
+        uint32_t currOutlineColor = current->getCurrentOutlineColor();
+        uint32_t currValueColor = current->getCurrentValueColor();
         updateCurrentGaugeColorSettings(currNeedleColor, currOutlineColor, currValueColor);
     }
 

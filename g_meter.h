@@ -3,10 +3,11 @@
 
 #include "gauge.h"
 #include "config.h"
+#include "gmeter_calibration.h"
 
 class GMeter : public Gauge {
 public:
-    GMeter(TFT_eSPI* display) : 
+    GMeter(TFT_eSPI* display) :
         Gauge(display),
         mpu(),
         combined(display),
@@ -19,10 +20,6 @@ public:
         minValueY(0.0),
         maxValueX(0.0),
         maxValueY(0.0),
-        minValue(-2),
-        maxValue(2),
-        oldGForceX(0.0),
-        oldGForceY(0.0),
         oldX(0),
         oldY(0) {}
 
@@ -60,6 +57,7 @@ public:
         mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
         mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
 
+        calibration.startCalibration();
         oldX = gaugeCenterX - GMETER_POINT_RADIUS;
         oldY = gaugeCenterY - GMETER_POINT_RADIUS;
     }
@@ -68,13 +66,22 @@ public:
         latestAccel = *accel;
         latestGyro = *gyro;
         latestTemp = *temp;
+        calibration.addSample(latestAccel);
     }
 
     void render(double) override {
-        double gForceX = latestAccel.acceleration.y / 9.80665;
-        double gForceY = latestAccel.acceleration.x / 9.80665;
+        if (calibration.isCollecting()) {
+            display->setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
+            display->setTextSize(1);
+            display->setCursor(5, 5);
+            display->print("Calibrating GMeter...");
+            return;
+        }
 
-        // Check for bogus values (sometimes seen on startup)
+        Vec3 normalized = calibration.normalize(latestAccel);
+        double gForceX = normalized.y;
+        double gForceY = normalized.x;
+
         if (gForceX < -3 || gForceX > 3 || gForceY < -3 || gForceY > 3) {
             return;
         }
@@ -98,14 +105,16 @@ public:
     }
 
     void reset() {
-        display->fillScreen(TFT_BLACK);
-        minX.deleteSprite();
-        maxX.deleteSprite();
-        minY.deleteSprite();
-        maxY.deleteSprite();
-        combined.deleteSprite();
-        history.deleteSprite();
-        initialize();
+        minValueX = 0.0;
+        minValueY = 0.0;
+        maxValueX = 0.0;
+        maxValueY = 0.0;
+        calibration.startCalibration();
+        history.fillSprite(TFT_TRANSPARENT);
+        updateTextSprite(maxX, "0.00");
+        updateTextSprite(minX, "0.00");
+        updateTextSprite(maxY, "0.00");
+        updateTextSprite(minY, "0.00");
     }
 
     void displayStats(float fps, double frameAvg, double queryAvg) override {
@@ -115,28 +124,18 @@ public:
         display->printf("FPS: %.1f\nFrame: %.1f ms\nQuery: %.1f ms", fps, frameAvg, queryAvg);
     }
 
-    GaugeType getType() const override {
-        return G_METER;
-    }
-
-    uint32_t getCurrentNeedleColor() {
-        return 0;
-    }
-
-    uint32_t getCurrentOutlineColor() {
-        return 0;
-    }
-
-    uint32_t getCurrentValueColor() {
-        return 0;
-    }
+    GaugeType getType() const override { return G_METER; }
+    uint32_t getCurrentNeedleColor() { return 0; }
+    uint32_t getCurrentOutlineColor() { return 0; }
+    uint32_t getCurrentValueColor() { return 0; }
 
 private:
     Adafruit_MPU6050 mpu;
     TFT_eSprite combined, history, maxX, maxY, minX, minY;
     sensors_event_t latestAccel, latestGyro, latestTemp;
-    int minValue, maxValue, oldX, oldY;
-    double oldGForceX, oldGForceY, minValueX, maxValueX, minValueY, maxValueY;
+    double minValueX, maxValueX, minValueY, maxValueY;
+    int oldX, oldY;
+    GMeterCalibration calibration;
 
     void drawOutline() {
         combined.fillSprite(TFT_TRANSPARENT);
@@ -152,26 +151,20 @@ private:
     }
 
     void createTextSprite(TFT_eSprite& sprite, const char* text) {
-        //Serial.printf("Creating sprite with address: %p\n", sprite);
         sprite.setColorDepth(8);
         sprite.setTextFont(GMETER_TEXT_FONT);
         sprite.setTextSize(GMETER_TEXT_SIZE);
         sprite.setTextColor(GMETER_TEXT_COLOR);
         int textWidth = sprite.textWidth("0.00");
         int textHeight = sprite.fontHeight();
-        if (!sprite.createSprite(textWidth + 10, textHeight + 10)) {
-            Serial.println("FAILED TO CREATE TEXT SPRITE");
-        }
+        sprite.createSprite(textWidth + 10, textHeight + 10);
         sprite.fillSprite(DISPLAY_BG_COLOR);
-        sprite.setCursor((sprite.height() - textHeight) / 2, (sprite.width() - textWidth) / 2);
+        sprite.setCursor((sprite.width() - textWidth) / 2, (sprite.height() - textHeight) / 2);
         sprite.println(text);
     }
 
     void pushCenteredSprite(TFT_eSprite& sprite, int x, int y) {
-        int spriteWidth = sprite.width();
-        int spriteHeight = sprite.height();
-        sprite.pushSprite(x - spriteWidth / 2, y - spriteHeight / 2);
-        Serial.printf("Pushed centered sprite at x: %.1d, y: %.1d\n", x, y);
+        sprite.pushSprite(x - sprite.width() / 2, y - sprite.height() / 2);
     }
 
     void updateMinMaxValues(double gForceX, double gForceY) {
@@ -179,25 +172,21 @@ private:
         int outlineY = DISPLAY_CENTER_Y - GMETER_RADIUS;
 
         if (gForceX > maxValueX) {
-            Serial.println("Updating maxValueX with value: " + String(gForceX));
             maxValueX = gForceX;
             updateTextSprite(maxX, String(maxValueX, 2));
             pushCenteredSprite(maxX, outlineX - GMETER_TEXT_OFFSET_X, DISPLAY_CENTER_Y);
         }
         if (gForceX < minValueX) {
-            Serial.println("Updating minValueX with value " + String(gForceX));
             minValueX = gForceX;
             updateTextSprite(minX, String(abs(minValueX), 2));
             pushCenteredSprite(minX, outlineX + GMETER_WIDTH + GMETER_TEXT_OFFSET_X, DISPLAY_CENTER_Y);
         }
         if (gForceY > maxValueY) {
-            Serial.println("Updating maxValueY with value " + String(gForceY));
             maxValueY = gForceY;
             updateTextSprite(maxY, String(maxValueY, 2));
             pushCenteredSprite(maxY, DISPLAY_CENTER_X, outlineY - GMETER_TEXT_OFFSET_Y);
         }
         if (gForceY < minValueY) {
-            Serial.println("Updating minValueY with value " + String(gForceY));
             minValueY = gForceY;
             updateTextSprite(minY, String(abs(minValueY), 2));
             pushCenteredSprite(minY, DISPLAY_CENTER_X, outlineY + GMETER_HEIGHT + GMETER_TEXT_OFFSET_Y);
@@ -205,13 +194,11 @@ private:
     }
 
     void updateTextSprite(TFT_eSprite& sprite, String text) {
-        //Serial.printf("Updating text sprite at address: %p\n", sprite);
         sprite.fillSprite(DISPLAY_BG_COLOR);
         int textWidth = sprite.textWidth(text);
         int textHeight = sprite.fontHeight();
-        sprite.setCursor((sprite.height() - textHeight) / 2, (sprite.width() - textWidth) / 2);
+        sprite.setCursor((sprite.width() - textWidth) / 2, (sprite.height() - textHeight) / 2);
         sprite.println(text);
-        Serial.println("Sprite updated with text " + text);
     }
 };
 
