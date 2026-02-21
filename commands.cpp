@@ -41,35 +41,41 @@ String Commands::sendCommand(String pid) {
 
 // Parse the response and set A and B
 void Commands::parsePIDResponse(String response, String pid, int numBytes) {
-    String pidStr = pid.substring(2);
-    String searchStr = "41" + pidStr;
-    Serial.println("searchStr: " + searchStr);
-    int idx = response.indexOf(searchStr);
-    if (idx != -1) {
-        int start = idx + searchStr.length();
-        int end = start + (numBytes * 3) - 1;
-        String hexBytes = response.substring(start, end);
-        Serial.println("start: " + String(start) + ", end: " + String(end) + ", hexBytes: " + hexBytes);
-        hexBytes.trim();
-        String byteStrs[numBytes];
-        int byteIndex = 0;
-        for (int i = 0; i < hexBytes.length(); i += 3) {
-            byteStrs[byteIndex++] = hexBytes.substring(i, i + 2);
+    String compact = "";
+    for (int i = 0; i < response.length(); i++) {
+        char c = toupper(response.charAt(i));
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')) {
+            compact += c;
         }
-        A = 0;
-        B = 0;
-        if (numBytes == 1) {
-            A = strtol(byteStrs[0].c_str(), NULL, 16);
-            B = -1;
-        } else if (numBytes == 2) {
-            A = strtol(byteStrs[0].c_str(), NULL, 16);
-            B = strtol(byteStrs[1].c_str(), NULL, 16);
-        } else {
-            A = -1;
-            B = -1;
-        }
-        Serial.printf("A: %.1d, B: %.1d\n", A, B);
     }
+
+    String searchStr = "41" + pid.substring(2);
+    int idx = compact.indexOf(searchStr);
+    A = -1;
+    B = -1;
+
+    if (idx == -1) {
+        Serial.println("PID not found in response: " + compact);
+        return;
+    }
+
+    int start = idx + searchStr.length();
+    int neededChars = numBytes * 2;
+    if (start + neededChars > compact.length()) {
+        Serial.println("Incomplete PID response: " + compact);
+        return;
+    }
+
+    String payload = compact.substring(start, start + neededChars);
+
+    if (numBytes >= 1) {
+        A = strtol(payload.substring(0, 2).c_str(), NULL, 16);
+    }
+    if (numBytes >= 2) {
+        B = strtol(payload.substring(2, 4).c_str(), NULL, 16);
+    }
+
+    Serial.printf("Parsed PID %s => A: %d, B: %d from %s\n", pid.c_str(), A, B, compact.c_str());
 }
 
 // Query a command and return the calculated value
@@ -87,6 +93,10 @@ double Commands::query(int commandIndex) {
     }
 
     parsePIDResponse(response, command, numBytes);
+    if (A < 0 || (numBytes > 1 && B < 0)) {
+        return 0.0;
+    }
+
     double val = 0.0;
     switch (formula) {
         case 0:
