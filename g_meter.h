@@ -21,7 +21,11 @@ public:
         maxValueX(0.0),
         maxValueY(0.0),
         oldX(0),
-        oldY(0) {}
+        oldY(0),
+        filteredX(0.0),
+        filteredY(0.0),
+        hasFilter(false),
+        calibrationDirty(false) {}
 
     void initialize() override {
         display->fillScreen(DISPLAY_BG_COLOR);
@@ -57,7 +61,6 @@ public:
         mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
         mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
 
-        calibration.startCalibration();
         oldX = gaugeCenterX - GMETER_POINT_RADIUS;
         oldY = gaugeCenterY - GMETER_POINT_RADIUS;
     }
@@ -67,6 +70,10 @@ public:
         latestGyro = *gyro;
         latestTemp = *temp;
         calibration.addSample(latestAccel);
+        if (!calibration.isCollecting() && calibration.isCalibrated() && calibrationInProgress) {
+            calibrationInProgress = false;
+            calibrationDirty = true;
+        }
     }
 
     void render(double) override {
@@ -74,7 +81,8 @@ public:
             display->setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
             display->setTextSize(1);
             display->setCursor(5, 5);
-            display->print("Calibrating GMeter...");
+            int pct = (calibration.getSampleCount() * 100) / calibration.getRequiredSamples();
+            display->printf("Calibrating GMeter... %d%%   ", pct);
             return;
         }
 
@@ -82,14 +90,39 @@ public:
         double gForceX = normalized.y;
         double gForceY = normalized.x;
 
-        if (gForceX < -3 || gForceX > 3 || gForceY < -3 || gForceY > 3) {
+        if (!isfinite(gForceX) || !isfinite(gForceY)) {
             return;
         }
 
+        // Reject impossible spikes and smooth incoming data to avoid outlier history points.
+        if (fabs(gForceX) > 3.0 || fabs(gForceY) > 3.0) {
+            return;
+        }
+
+        if (!hasFilter) {
+            filteredX = gForceX;
+            filteredY = gForceY;
+            hasFilter = true;
+        }
+
+        double dx = gForceX - filteredX;
+        double dy = gForceY - filteredY;
+        const double spikeLimit = 0.45;
+        if (fabs(dx) > spikeLimit || fabs(dy) > spikeLimit) {
+            return;
+        }
+
+        const double alpha = 0.25;
+        filteredX = filteredX + alpha * dx;
+        filteredY = filteredY + alpha * dy;
+
+        if (fabs(filteredX) < 0.02) filteredX = 0.0;
+        if (fabs(filteredY) < 0.02) filteredY = 0.0;
+
         int gaugeCenterX = DISPLAY_CENTER_X;
         int gaugeCenterY = DISPLAY_CENTER_Y;
-        int posX = gaugeCenterX - (GMETER_RADIUS * gForceX / 2);
-        int posY = gaugeCenterY - (GMETER_RADIUS * gForceY / 2);
+        int posX = gaugeCenterX - (GMETER_RADIUS * filteredX / 2);
+        int posY = gaugeCenterY - (GMETER_RADIUS * filteredY / 2);
 
         if (abs(posX - oldX) > 1 || abs(posY - oldY) > 1) {
             drawOutline();
@@ -101,7 +134,29 @@ public:
             oldY = posY;
         }
 
-        updateMinMaxValues(gForceX, gForceY);
+        updateMinMaxValues(filteredX, filteredY);
+    }
+
+    void beginManualCalibration() {
+        calibration.startCalibration();
+        calibrationInProgress = true;
+        calibrationDirty = false;
+        hasFilter = false;
+    }
+
+    bool consumeCalibration(float outRotation[3][3], Vec3& outBias) {
+        if (!calibrationDirty) {
+            return false;
+        }
+        calibration.getCalibration(outRotation, outBias);
+        calibrationDirty = false;
+        return true;
+    }
+
+    void setStoredCalibration(const float inRotation[3][3], const Vec3& inBias) {
+        calibration.setCalibration(inRotation, inBias);
+        calibrationInProgress = false;
+        calibrationDirty = false;
     }
 
     void reset() {
@@ -109,7 +164,7 @@ public:
         minValueY = 0.0;
         maxValueX = 0.0;
         maxValueY = 0.0;
-        calibration.startCalibration();
+        hasFilter = false;
         history.fillSprite(TFT_TRANSPARENT);
         updateTextSprite(maxX, "0.00");
         updateTextSprite(minX, "0.00");
@@ -135,6 +190,10 @@ private:
     sensors_event_t latestAccel, latestGyro, latestTemp;
     double minValueX, maxValueX, minValueY, maxValueY;
     int oldX, oldY;
+    double filteredX, filteredY;
+    bool hasFilter;
+    bool calibrationInProgress = false;
+    bool calibrationDirty;
     GMeterCalibration calibration;
 
     void drawOutline() {
