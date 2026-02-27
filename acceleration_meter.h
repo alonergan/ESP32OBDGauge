@@ -12,34 +12,23 @@ public:
         speed(display),
         speedLabel(display),
         message(display),
-        startValue(0.00),
-        endValue(60.00),
-        timeValue(0.00),
-        latestSpeed(0.00),
-        endSpeedReached(false),
-        previousSpeed(0.00),
-        startTime(0),
-        previousTime(0),
-        timerStarted(false) {}
+        latestSpeed(0.0),
+        displayedSpeed(-1),
+        previousSpeed(0.0),
+        runTimeSeconds(0.0),
+        stationaryStartMs(0),
+        startTimeUs(0),
+        previousTimeUs(0),
+        stage(WAIT_STATIONARY) {}
 
     void initialize() override {
         display->fillScreen(DISPLAY_BG_COLOR);
-        int textWidth = 0;
-        int textHeight = 0;
 
         speed.setColorDepth(8);
         speed.setTextSize(7);
         speed.setTextFont(1);
-        speed.setTextColor(TFT_RED);
-        textWidth = speed.textWidth("77");
-        textHeight = speed.fontHeight();
-        speed.createSprite(textWidth, textHeight);
-        textWidth = speed.textWidth("0");
-        textHeight = speed.fontHeight();
-        Serial.printf("SPEED\ntextWidth: %.1d\ntextHeight: %.1d\nspriteWidth: %.1d\nspriteHeight: %.1d\n", textWidth, textHeight, speed.width(), speed.height());
-        speed.setCursor((speed.width() - textWidth) / 2, (speed.height() - textHeight) / 2);
-        speed.println("0");
-        speed.pushSprite((DISPLAY_WIDTH - speed.width()) / 2, 60);
+        speed.setTextColor(TFT_RED, DISPLAY_BG_COLOR);
+        speed.createSprite(speed.textWidth("188"), speed.fontHeight());
 
         speedLabel.setColorDepth(1);
         speedLabel.setTextFont(1);
@@ -48,21 +37,12 @@ public:
         speedLabel.createSprite(speedLabel.textWidth(AMETER_SPEED_LABEL), speedLabel.fontHeight());
         speedLabel.setCursor(0, 0);
         speedLabel.println(AMETER_SPEED_LABEL);
-        speedLabel.pushSprite((DISPLAY_WIDTH - speedLabel.width()) / 2, 60 - speedLabel.height() - AMETER_V_PADDING);
 
         time.setColorDepth(8);
         time.setTextSize(5);
         time.setTextFont(1);
-        time.setTextColor(TFT_RED);
-        textWidth = time.textWidth("77.77");
-        textHeight = time.fontHeight();
-        time.createSprite(textWidth, textHeight);
-        textWidth = time.textWidth("0.00");
-        textHeight = time.fontHeight();
-        Serial.printf("TIME\ntextWidth: %.1d\ntextHeight: %.1d\nspriteWidth: %.1d\nspriteHeight: %.1d\n", textWidth, textHeight, time.width(), time.height());
-        time.setCursor((time.width() - textWidth) / 2, (time.height() - textHeight) / 2);
-        time.println("0.00");
-        time.pushSprite((DISPLAY_WIDTH - time.width()) / 2, 175);
+        time.setTextColor(AMETER_TIME_COLOR, DISPLAY_BG_COLOR);
+        time.createSprite(time.textWidth("00.000"), time.fontHeight());
 
         timeLabel.setColorDepth(1);
         timeLabel.setTextFont(1);
@@ -71,15 +51,80 @@ public:
         timeLabel.createSprite(timeLabel.textWidth(AMETER_TIME_LABEL), timeLabel.fontHeight());
         timeLabel.setCursor(0, 0);
         timeLabel.println(AMETER_TIME_LABEL);
+
+        message.setColorDepth(8);
+        message.setTextFont(2);
+        message.setTextSize(1);
+        message.setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
+        message.createSprite(DISPLAY_WIDTH, 20);
+
+        speedLabel.pushSprite((DISPLAY_WIDTH - speedLabel.width()) / 2, 60 - speedLabel.height() - AMETER_V_PADDING);
         timeLabel.pushSprite((DISPLAY_WIDTH - timeLabel.width()) / 2, 175 - timeLabel.height() - AMETER_V_PADDING);
+
+        drawSpeed((int)round(latestSpeed));
+        drawTime(runTimeSeconds, stage == FINISHED ? TFT_GREEN : AMETER_TIME_COLOR);
+        drawMessageForStage();
     }
 
-    void setSpeed(double speed) {
-        latestSpeed = speed;
+    void setSpeed(double speedVal) {
+        latestSpeed = speedVal;
     }
 
     void render(double) override {
-        renderAccelerationMeter(latestSpeed);
+        unsigned long nowMs = millis();
+        unsigned long long nowUs = micros();
+
+        drawSpeed((int)round(latestSpeed));
+
+        switch (stage) {
+            case WAIT_STATIONARY:
+                if (latestSpeed <= 1.0) {
+                    if (stationaryStartMs == 0) {
+                        stationaryStartMs = nowMs;
+                    }
+                    if (nowMs - stationaryStartMs >= 3000) {
+                        stage = READY;
+                        runTimeSeconds = 0.0;
+                        drawTime(runTimeSeconds, AMETER_TIME_COLOR);
+                        drawMessageForStage();
+                    }
+                } else {
+                    stationaryStartMs = 0;
+                }
+                break;
+
+            case READY:
+                if (latestSpeed > 1.5) {
+                    stage = RUNNING;
+                    startTimeUs = nowUs;
+                    previousTimeUs = nowUs;
+                    previousSpeed = latestSpeed;
+                    drawMessageForStage();
+                }
+                break;
+
+            case RUNNING:
+                runTimeSeconds = (double)(nowUs - startTimeUs) / 1000000.0;
+
+                if (previousSpeed < 60.0 && latestSpeed >= 60.0 && latestSpeed > previousSpeed) {
+                    double fraction = (60.0 - previousSpeed) / (latestSpeed - previousSpeed);
+                    unsigned long long crossedUs = previousTimeUs + (unsigned long long)(fraction * (double)(nowUs - previousTimeUs));
+                    runTimeSeconds = (double)(crossedUs - startTimeUs) / 1000000.0;
+                    stage = FINISHED;
+                    drawTime(runTimeSeconds, TFT_GREEN);
+                    drawMessageForStage();
+                } else {
+                    drawTime(runTimeSeconds, AMETER_TIME_COLOR);
+                }
+
+                previousSpeed = latestSpeed;
+                previousTimeUs = nowUs;
+                break;
+
+            case FINISHED:
+                // Latch final run time until reset() is called by user.
+                break;
+        }
     }
 
     void displayStats(float fps, double frameAvg, double queryAvg) override {
@@ -93,88 +138,86 @@ public:
         return ACCELERATION_METER;
     }
 
-    uint32_t getCurrentNeedleColor() {
-        return 0;
+    void reset() override {
+        stage = WAIT_STATIONARY;
+        stationaryStartMs = 0;
+        startTimeUs = 0;
+        previousTimeUs = 0;
+        previousSpeed = latestSpeed;
+        runTimeSeconds = 0.0;
+        displayedSpeed = -1;
+        initialize();
     }
 
-    uint32_t getCurrentOutlineColor() {
-        return 0;
-    }
-
-    uint32_t getCurrentValueColor() {
-        return 0;
-    }
+    uint32_t getCurrentNeedleColor() { return 0; }
+    uint32_t getCurrentOutlineColor() { return 0; }
+    uint32_t getCurrentValueColor() { return 0; }
 
 private:
+    enum MeterStage { WAIT_STATIONARY, READY, RUNNING, FINISHED };
+
     TFT_eSprite time, speed, timeLabel, speedLabel, message;
-    double timeValue, startValue, endValue, latestSpeed, previousSpeed;
-    unsigned long startTime, previousTime;
-    bool endSpeedReached, timerStarted;
+    double latestSpeed;
+    int displayedSpeed;
+    double previousSpeed;
+    double runTimeSeconds;
+    unsigned long stationaryStartMs;
+    unsigned long long startTimeUs;
+    unsigned long long previousTimeUs;
+    MeterStage stage;
 
-    void renderAccelerationMeter(double speedVal) {
-        unsigned int now = millis();
-
-        if (!timerStarted && previousSpeed == 0.0 && speedVal >= 1.0) {
-            startTime = now;
-            timerStarted = true;
-        }
-
-        if (endSpeedReached) {
+    void drawSpeed(int speedInt) {
+        if (speedInt == displayedSpeed) {
             return;
         }
 
-        if (timerStarted && previousSpeed < 60.0 && speedVal >= 60.0) {
-            double fraction = (60.0 - previousSpeed) / (speedVal - previousSpeed);
-            unsigned long interpolatedTime = previousTime + fraction * (now - previousTime);
-            unsigned int elapsedMilliseconds = interpolatedTime - startTime;
-            int seconds = elapsedMilliseconds / 1000;
-            int milliseconds = elapsedMilliseconds % 1000;
-            char timeStr[8];
-            sprintf(timeStr, "%d.%03d", seconds, milliseconds);
-            String currentTime = String(timeStr);
-            time.fillSprite(DISPLAY_BG_COLOR);
-            time.setTextColor(TFT_GREEN);
-            int textWidth = time.textWidth(currentTime);
-            int textHeight = time.fontHeight();
-            time.setCursor((time.width() - textWidth) / 2, (time.height() - textHeight) / 2);
-            time.println(currentTime);
-            time.pushSprite((DISPLAY_WIDTH - time.width()) / 2, 175);
-            endSpeedReached = true;
-        } else if (timerStarted) {
-            unsigned int elapsedMilliseconds = now - startTime;
-            int seconds = elapsedMilliseconds / 1000;
-            int milliseconds = elapsedMilliseconds % 1000;
-            char timeStr[8];
-            sprintf(timeStr, "%d.%03d", seconds, milliseconds);
-            String currentTime = String(timeStr);
-            int textWidth = time.textWidth(currentTime);
-            int textHeight = time.fontHeight();
-            time.fillSprite(DISPLAY_BG_COLOR);
-            time.setCursor((time.width() - textWidth) / 2, (time.height() - textHeight) / 2);
-            time.println(currentTime);
-            time.pushSprite((DISPLAY_WIDTH - time.width()) / 2, 175);
-        }
-
-        String text = String((int)speedVal);
+        String text = String(speedInt);
+        speed.fillSprite(DISPLAY_BG_COLOR);
         int textWidth = speed.textWidth(text);
         int textHeight = speed.fontHeight();
-        speed.fillSprite(DISPLAY_BG_COLOR);
         speed.setCursor((speed.width() - textWidth) / 2, (speed.height() - textHeight) / 2);
         speed.println(text);
         speed.pushSprite((DISPLAY_WIDTH - speed.width()) / 2, 60);
-
-        previousSpeed = speedVal;
-        previousTime = now;
+        displayedSpeed = speedInt;
     }
 
-    void reset() {
-        previousSpeed = 0.0;
-        previousTime = 0;
-        timerStarted = false;
-        endSpeedReached = false;
-        startTime = 0;
-        time.setTextColor(TFT_RED);
-        render(0.0);
+    void drawTime(double seconds, uint16_t color) {
+        char timeStr[16];
+        snprintf(timeStr, sizeof(timeStr), "%0.3f", seconds);
+        String text(timeStr);
+
+        time.fillSprite(DISPLAY_BG_COLOR);
+        time.setTextColor(color, DISPLAY_BG_COLOR);
+        int textWidth = time.textWidth(text);
+        int textHeight = time.fontHeight();
+        time.setCursor((time.width() - textWidth) / 2, (time.height() - textHeight) / 2);
+        time.println(text);
+        time.pushSprite((DISPLAY_WIDTH - time.width()) / 2, 175);
+    }
+
+    void drawMessageForStage() {
+        const char* text = "";
+        uint16_t color = TFT_YELLOW;
+
+        if (stage == WAIT_STATIONARY) {
+            text = "Keep vehicle still for 3s to arm";
+        } else if (stage == READY) {
+            text = "Ready - accelerate to start";
+            color = TFT_CYAN;
+        } else if (stage == RUNNING) {
+            text = "Measuring 0-60...";
+            color = TFT_ORANGE;
+        } else if (stage == FINISHED) {
+            text = "Done - tap reset button";
+            color = TFT_GREEN;
+        }
+
+        message.fillSprite(DISPLAY_BG_COLOR);
+        message.setTextColor(color, DISPLAY_BG_COLOR);
+        int textWidth = message.textWidth(text);
+        message.setCursor((DISPLAY_WIDTH - textWidth) / 2, 4);
+        message.println(text);
+        message.pushSprite(0, DISPLAY_HEIGHT - message.height());
     }
 };
 

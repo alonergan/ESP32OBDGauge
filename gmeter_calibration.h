@@ -47,6 +47,8 @@ public:
 
     bool isCollecting() const { return collecting; }
     bool isCalibrated() const { return calibrated; }
+    int getSampleCount() const { return sampleCount; }
+    int getRequiredSamples() const { return REQUIRED_SAMPLES; }
 
     Vec3 normalize(const sensors_event_t& accel) const {
         Vec3 raw = {
@@ -58,11 +60,33 @@ public:
         Vec3 rotated = multiply(rotation, raw);
         rotated.x -= bias.x;
         rotated.y -= bias.y;
+        rotated.z -= bias.z;
         return rotated;
     }
 
+    void getCalibration(float outRotation[3][3], Vec3& outBias) const {
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                outRotation[i][j] = rotation[i][j];
+            }
+        }
+        outBias = bias;
+    }
+
+    void setCalibration(const float inRotation[3][3], const Vec3& inBias) {
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                rotation[i][j] = inRotation[i][j];
+            }
+        }
+        bias = inBias;
+        calibrated = true;
+        collecting = false;
+        sampleCount = 0;
+    }
+
 private:
-    static const int REQUIRED_SAMPLES = 200;
+    static const int REQUIRED_SAMPLES = 250;
     bool calibrated;
     bool collecting;
     int sampleCount;
@@ -100,7 +124,7 @@ private:
         return {v.x / n, v.y / n, v.z / n};
     }
 
-    static Vec3 multiply(float m[3][3], const Vec3& v) {
+    static Vec3 multiply(const float m[3][3], const Vec3& v) {
         return {
             m[0][0] * v.x + m[0][1] * v.y + m[0][2] * v.z,
             m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,

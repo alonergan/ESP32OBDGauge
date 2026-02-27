@@ -32,7 +32,7 @@ public:
                     int bx = BUTTON_MARGIN + j * (BUTTON_WIDTH + BUTTON_SPACING);
                     int by = BUTTON_MARGIN + i * (BUTTON_HEIGHT + BUTTON_SPACING);
                     if (x >= bx && x < bx + BUTTON_WIDTH && y >= by && y < by + BUTTON_HEIGHT) {
-                        if (i == 0 && j == 0) { // Gauge settings
+                        if (i == 0 && j == 0) { // G-meter calibration
                             state = ABOUT;
                             drawAboutMenu();
                             return true;
@@ -89,9 +89,25 @@ private:
     };
 
     bool handleAboutTouch(uint16_t x, uint16_t y) {
-        // Exit about screen on any touch
-        state = MAIN_MENU;
-        drawMainMenu();
+        int buttonWidth = 190;
+        int buttonHeight = 55;
+        int calibrateX = (DISPLAY_WIDTH - buttonWidth) / 2;
+        int calibrateY = 90;
+        int backX = calibrateX;
+        int backY = 160;
+
+        if (x >= calibrateX && x < calibrateX + buttonWidth && y >= calibrateY && y < calibrateY + buttonHeight) {
+            triggerGMeterCalibration();
+            drawAboutMenu();
+            return true;
+        }
+
+        if (x >= backX && x < backX + buttonWidth && y >= backY && y < backY + buttonHeight) {
+            state = MAIN_MENU;
+            drawMainMenu();
+            return true;
+        }
+
         return true;
     }
 
@@ -191,7 +207,7 @@ private:
 
         // Draw 2x2 grid of buttons
         const char* labels[2][2] = {
-            {"About", "Bluetooth"},
+            {"G-Meter", "Bluetooth"},
             {"Color", "Exit"}
         };
         for (int i = 0; i < 2; i++) {
@@ -215,24 +231,38 @@ private:
         screenSprite.setTextSize(2);
         screenSprite.setTextColor(TFT_WHITE);
 
-        String title = "About";
+        String title = "G-Meter Calibration";
         int titleWidth = screenSprite.textWidth(title);
         int x = DISPLAY_CENTER_X - (titleWidth / 2);
-        screenSprite.setCursor(x, 30);
+        screenSprite.setCursor(x, 24);
         screenSprite.print(title);
 
         screenSprite.setTextSize(1);
-        String version = "Version: " + String(SOFTWARE_VERSION);
-        int versionWidth = screenSprite.textWidth(version);
-        x = DISPLAY_CENTER_X - (versionWidth / 2);
-        screenSprite.setCursor(x, 60);
-        screenSprite.print(version);
+        String text = "Park on flat ground before calibrating.";
+        int textWidth = screenSprite.textWidth(text);
+        x = DISPLAY_CENTER_X - (textWidth / 2);
+        screenSprite.setCursor(x, 55);
+        screenSprite.print(text);
 
-        String device = "Device: " + String(DEVICE_DESCRIPTION);
-        int deviceWidth = screenSprite.textWidth(device);
-        x = DISPLAY_CENTER_X - (deviceWidth / 2);
-        screenSprite.setCursor(x, 90);
-        screenSprite.print(device);
+        int buttonWidth = 190;
+        int buttonHeight = 55;
+        int buttonX = (DISPLAY_WIDTH - buttonWidth) / 2;
+
+        screenSprite.fillRect(buttonX, 90, buttonWidth, buttonHeight, TFT_DARKGREEN);
+        screenSprite.drawRect(buttonX, 90, buttonWidth, buttonHeight, TFT_WHITE);
+        String calibrate = "Start Calibration";
+        int calibrateWidth = screenSprite.textWidth(calibrate);
+        int calibrateHeight = screenSprite.fontHeight();
+        screenSprite.setCursor(buttonX + (buttonWidth - calibrateWidth) / 2, 90 + (buttonHeight - calibrateHeight) / 2);
+        screenSprite.print(calibrate);
+
+        screenSprite.fillRect(buttonX, 160, buttonWidth, buttonHeight, TFT_DARKGREY);
+        screenSprite.drawRect(buttonX, 160, buttonWidth, buttonHeight, TFT_WHITE);
+        String back = "Back";
+        int backWidth = screenSprite.textWidth(back);
+        int backHeight = screenSprite.fontHeight();
+        screenSprite.setCursor(buttonX + (buttonWidth - backWidth) / 2, 160 + (buttonHeight - backHeight) / 2);
+        screenSprite.print(back);
 
         screenSprite.pushSprite(0, 0);
     }
@@ -287,6 +317,16 @@ private:
             }
         }
         screenSprite.pushSprite(0, 0);
+    }
+
+
+    void triggerGMeterCalibration() {
+        for (int i = 0; i < numGauges; i++) {
+            if (gauges[i]->getType() == Gauge::G_METER) {
+                static_cast<GMeter*>(gauges[i])->beginManualCalibration();
+                break;
+            }
+        }
     }
 
     void drawColorPicker() {

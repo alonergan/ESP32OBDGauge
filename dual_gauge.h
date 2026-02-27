@@ -150,7 +150,7 @@ private:
         Serial.println("Failed to create gaugeOutlineLeft sprite");
       }
 
-      if (!gaugeOutlineRight.createSprite(DG_BAR_WIDTH, DG_BAR_WIDTH)) {
+      if (!gaugeOutlineRight.createSprite(DG_BAR_WIDTH, DG_BAR_HEIGHT)) {
         Serial.println("Failed to create gaugeOutlineRight sprite");
       }
 
@@ -176,6 +176,9 @@ private:
       gaugeOutlineRight.fillRect(1, 1, DG_BAR_WIDTH - 2, DG_BAR_HEIGHT - 2, needleColor);
 
       // Fill bar from top down with black to (1 - (value / maxValue)) * DG_BAR_HEIGHT
+      leftVal = constrain(leftVal, minValueLeft, maxValueLeft);
+      rightVal = constrain(rightVal, minValueRight, maxValueRight);
+
       int y = (1 - (leftVal / maxValueLeft)) * DG_BAR_HEIGHT;
       if (y != 0) {
         // Only render black if bar graph is not full
@@ -194,7 +197,7 @@ private:
       gaugeOutlineLeft.pushSprite(xPos, yPos);
 
       xPos = 3 * (DISPLAY_WIDTH / 4) - (DG_BAR_WIDTH / 2);
-      gaugeOutlineLeft.pushSprite(xPos, yPos);
+      gaugeOutlineRight.pushSprite(xPos, yPos);
     }
 
     void createLabels() {
@@ -299,7 +302,6 @@ String DualGauge::gaugeTypes[2][5] = {
 };
 
 #endif
-
 
 
 

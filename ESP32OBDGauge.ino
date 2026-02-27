@@ -20,7 +20,9 @@ uint32_t outlineColor = GAUGE_FG_COLOR;
 uint32_t needleColor = NEEDLE_COLOR_PRIMARY;
 uint32_t valueColor = VALUE_TEXT_COLOR;
 int currentGauge = 0;
-float mpuCalibrationMatrix[3][3]; // 3x3 rotation matrix obtained when statically calibrating the MPU-6050
+float mpuCalibrationMatrix[3][3]; // Persisted G-meter rotation matrix
+Vec3 mpuCalibrationBias = {0.0f, 0.0f, 0.0f};
+bool gmeterCalibrationStored = false;
 
 Preferences preferences;
 TFT_eSPI display = TFT_eSPI();
@@ -71,6 +73,10 @@ void setup() {
     gauges[5] = new GMeter(&display);
     gauges[6] = new AccelerationMeter(&display);
 
+    if (gmeterCalibrationStored) {
+        static_cast<GMeter*>(gauges[5])->setStoredCalibration(mpuCalibrationMatrix, mpuCalibrationBias);
+    }
+
     if (!obdConnected) {
         currentGauge = FALLBACK_GAUGE_INDEX;
     }
@@ -90,6 +96,17 @@ void readSettings() {
     needleColor = preferences.getUInt("needleColor", NEEDLE_COLOR_PRIMARY);
     valueColor = preferences.getUInt("valueColor", VALUE_TEXT_COLOR);
     currentGauge = preferences.getInt("currentGauge", 0);
+
+    gmeterCalibrationStored = preferences.getBool("gmCalSaved", false);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            String key = "gmr" + String(i) + String(j);
+            mpuCalibrationMatrix[i][j] = preferences.getFloat(key.c_str(), (i == j) ? 1.0f : 0.0f);
+        }
+    }
+    mpuCalibrationBias.x = preferences.getFloat("gmbx", 0.0f);
+    mpuCalibrationBias.y = preferences.getFloat("gmby", 0.0f);
+    mpuCalibrationBias.z = preferences.getFloat("gmbz", 0.0f);
 
     // Close preferences
     preferences.end();
@@ -120,6 +137,24 @@ void updateCurrentGaugeColorSettings(uint32_t currNeedleColor, uint32_t currOutl
     // Close preferences
     preferences.end();
     return;
+}
+
+
+void updateGMeterCalibrationSettings(const float rotation[3][3], const Vec3& bias) {
+    preferences.begin("OBDGAUGE", false);
+
+    preferences.putBool("gmCalSaved", true);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            String key = "gmr" + String(i) + String(j);
+            preferences.putFloat(key.c_str(), rotation[i][j]);
+        }
+    }
+    preferences.putFloat("gmbx", bias.x);
+    preferences.putFloat("gmby", bias.y);
+    preferences.putFloat("gmbz", bias.z);
+
+    preferences.end();
 }
 
 void dataFetchingTask(void* parameter) {
@@ -263,6 +298,21 @@ void loop() {
         if (current != nullptr) {
             current->render(0.0);
         }
+
+        GMeter* gm = static_cast<GMeter*>(gauges[5]);
+        float savedRotation[3][3];
+        Vec3 savedBias;
+        if (gm->consumeCalibration(savedRotation, savedBias)) {
+            updateGMeterCalibrationSettings(savedRotation, savedBias);
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    mpuCalibrationMatrix[i][j] = savedRotation[i][j];
+                }
+            }
+            mpuCalibrationBias = savedBias;
+            gmeterCalibrationStored = true;
+        }
+
         xSemaphoreGive(gaugeMutex);
         //if (obdConnected) {
             //display.drawRect(0, 0, 10, 10, TFT_GREEN);
