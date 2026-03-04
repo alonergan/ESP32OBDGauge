@@ -12,7 +12,8 @@ public:
         NEEDLE_GAUGE,
         DUAL_GAUGE,
         G_METER,
-        ACCELERATION_METER
+        ACCELERATION_METER,
+        QUADRANT_GAUGE
     };
 
     Gauge(TFT_eSPI* display) : display(display) {}
