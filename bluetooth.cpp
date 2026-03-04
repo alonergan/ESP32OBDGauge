@@ -7,7 +7,6 @@ BLERemoteCharacteristic* pNotifyChar = nullptr;
 BLEClient* pClient = nullptr;
 boolean connected = false;
 String responseBuffer = "";
-Commands commands;
 
 class MyClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pclient) { connected = true; }
@@ -27,17 +26,18 @@ static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, ui
 }
 
 void intializeELM327() {
+    Commands initCommands;
     // Send initialization commands to ELM327
-    commands.sendCommand("ATZ");     // Reset adapter
-    commands.sendCommand("ATE0");    // Echo off
-    commands.sendCommand("ATL0");    // Linefeeds off
-    commands.sendCommand("ATS0");    // Spaces off
-    commands.sendCommand("ATH0");    // Headers off
-    commands.sendCommand("ATSP 6");  // Set protocol
-    commands.sendCommand("ATSH 7DF"); // Set ECU address
-    commands.sendCommand("AT ST 10"); // Set optimal timeout to 160ms
-    commands.sendCommand("AT AT 2");  // Set aggressive adaptive timing
-    String pidSupport = commands.sendCommand("0100"); // Check supported PIDs
+    initCommands.sendCommand("ATZ");     // Reset adapter
+    initCommands.sendCommand("ATE0");    // Echo off
+    initCommands.sendCommand("ATL0");    // Linefeeds off
+    initCommands.sendCommand("ATS0");    // Spaces off
+    initCommands.sendCommand("ATH0");    // Headers off
+    initCommands.sendCommand("ATSP 6");  // Set protocol
+    initCommands.sendCommand("ATSH 7DF"); // Set ECU address
+    initCommands.sendCommand("AT ST 10"); // Set optimal timeout to 160ms
+    initCommands.sendCommand("AT AT 2");  // Set aggressive adaptive timing
+    String pidSupport = initCommands.sendCommand("0100"); // Check supported PIDs
     Serial.println("PID 0100 response: " + pidSupport);
 }
 

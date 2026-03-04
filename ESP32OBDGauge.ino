@@ -7,6 +7,7 @@
 #include "dual_gauge.h"
 #include "g_meter.h"
 #include "acceleration_meter.h"
+#include "quadrant_gauge.h"
 #include "options_screen.h"
 #include "config.h"
 #include "screen_manager.h"
@@ -26,10 +27,11 @@ bool gmeterCalibrationStored = false;
 
 Preferences preferences;
 TFT_eSPI display = TFT_eSPI();
-const int GAUGE_COUNT = 7;
+const int GAUGE_COUNT = 8;
 const int FALLBACK_GAUGE_INDEX = 5;
 Gauge* gauges[GAUGE_COUNT];
 ScreenManager screenManager;
+Commands commands;
 TaskHandle_t dataTaskHandle;
 SemaphoreHandle_t gaugeMutex;
 unsigned long lastTouchTime = 0;
@@ -72,6 +74,7 @@ void setup() {
     gauges[4] = new DualGauge(&display, 0, outlineColor, needleColor, valueColor);
     gauges[5] = new GMeter(&display);
     gauges[6] = new AccelerationMeter(&display);
+    gauges[7] = new QuadrantGauge(&display, &commands);
 
     if (gmeterCalibrationStored) {
         static_cast<GMeter*>(gauges[5])->setStoredCalibration(mpuCalibrationMatrix, mpuCalibrationBias);
@@ -158,7 +161,6 @@ void updateGMeterCalibrationSettings(const float rotation[3][3], const Vec3& bia
 }
 
 void dataFetchingTask(void* parameter) {
-    Commands commands;
     Adafruit_MPU6050 mpu;
     mpu.begin();
     mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
@@ -225,6 +227,22 @@ void dataFetchingTask(void* parameter) {
                     vTaskDelay(100 / portTICK_PERIOD_MS);
                 }
                 break;
+            case Gauge::QUADRANT_GAUGE:
+                if (obdConnected) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(gauge);
+                    for (int i = 0; i < 4; i++) {
+                        int commandIndex = qg->getCommandIndexForQuadrant(i);
+                        qg->setQuadrantReading(i, commands.getValueByCommandIndex(commandIndex));
+                    }
+                    vTaskDelay(150 / portTICK_PERIOD_MS);
+                } else {
+                    if (millis() - lastReconnectAttempt > RECONNECT_INTERVAL) {
+                        obdConnected = reconnectToOBD();
+                        lastReconnectAttempt = millis();
+                    }
+                    vTaskDelay(150 / portTICK_PERIOD_MS);
+                }
+                break;
         }
     }
 }
@@ -260,11 +278,33 @@ void loop() {
                         }
                     }
                 }
-            } else if (millis() - touchStartTime > LONG_PRESS_THRESHOLD) {
-                showOptions();
-                ignoreHeldTouchInOptions = true;
-                waitingForReleaseAfterOptions = true;
-                wasTouched = true;  // Don't reset — finger still down
+            } else {
+                bool handledSelectorTouch = false;
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                    if (qg->isSelectorVisible()) {
+                        qg->handleTouch(touch_last_x, touch_last_y);
+                        handledSelectorTouch = true;
+                    }
+                }
+                xSemaphoreGive(gaugeMutex);
+
+                if (!handledSelectorTouch && millis() - touchStartTime > LONG_PRESS_THRESHOLD) {
+                    xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                    current = screenManager.getCurrentGauge();
+                    if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                        QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                        qg->openSelectorFromTouch(touch_last_x, touch_last_y);
+                    } else {
+                        showOptions();
+                        ignoreHeldTouchInOptions = true;
+                        waitingForReleaseAfterOptions = true;
+                    }
+                    xSemaphoreGive(gaugeMutex);
+                    wasTouched = true;
+                }
             }
         }
     } else if (wasTouched && !touch_touched()) {
@@ -282,11 +322,22 @@ void loop() {
         }
 
         if (!inOptionsScreen && millis() - touchStartTime < LONG_PRESS_THRESHOLD) {
-            if ((touch_last_x >= 0 && touch_last_x < 30) &&
-                (touch_last_y > 210 && touch_last_y <= 240)) {
-                resetGauge();
-            } else {
-                switchToNextGauge();
+            bool handledByQuadrantSelector = false;
+            xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+            Gauge* current = screenManager.getCurrentGauge();
+            if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                handledByQuadrantSelector = qg->isSelectorVisible();
+            }
+            xSemaphoreGive(gaugeMutex);
+
+            if (!handledByQuadrantSelector) {
+                if ((touch_last_x >= 0 && touch_last_x < 30) &&
+                    (touch_last_y > 210 && touch_last_y <= 240)) {
+                    resetGauge();
+                } else {
+                    switchToNextGauge();
+                }
             }
         }
     }
