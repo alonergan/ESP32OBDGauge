@@ -103,10 +103,29 @@ String Commands::sendCommand(String pid, String header) {
     }
 
     String selectedHeader = normalizeHeader(header.c_str());
-    responseBuffer = "";
-    pWriteChar->writeValue("AT SH " + selectedHeader + "\r");
-    delay(25);
+    bool isATCommand = pid.startsWith("AT");
 
+    if (!isATCommand) {
+        responseBuffer = "";
+        pWriteChar->writeValue("AT SH " + selectedHeader + "\r");
+
+        bool headerReady = false;
+        for (int i = 0; i < 250; i++) {
+            delay(1);
+            if (responseBuffer.indexOf(">") != -1) {
+                headerReady = true;
+                break;
+            }
+        }
+
+        if (!headerReady) {
+            Serial.println("Header set timed out for " + selectedHeader + ". Response buffer: " + responseBuffer);
+            lastQueryError = QUERY_TIMEOUT;
+            return "";
+        }
+    }
+
+    responseBuffer = "";
     String fullCmd = pid + "\r";
     unsigned long start = millis();
     Serial.println("Sending command: " + pid + " on header: " + selectedHeader);
@@ -421,4 +440,3 @@ String Commands::getLastQueryDiagnostic() const {
 }
 
 void Commands::initializeOBD() {}
-
