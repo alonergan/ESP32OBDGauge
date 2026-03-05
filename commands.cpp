@@ -70,7 +70,14 @@ const pidCommandDefinition Commands::commandConfig[] = {
 
 const int Commands::commandCount = sizeof(Commands::commandConfig) / sizeof(Commands::commandConfig[0]);
 
-Commands::Commands() : A(0), B(0) {}
+Commands::Commands() :
+    A(0),
+    B(0),
+    lastQueryError(QUERY_OK),
+    lastQueryCommandIndex(-1),
+    lastQueryPid(""),
+    lastQueryHeader(""),
+    lastQueryResponse("") {}
 
 String Commands::normalizeHeader(const char* header) const {
     String rawHeader = String(header);
@@ -91,6 +98,7 @@ String Commands::normalizeHeader(const char* header) const {
 String Commands::sendCommand(String pid, String header) {
     if (!connected || pWriteChar == nullptr) {
         Serial.println("Cannot send command: No OBD connection");
+        lastQueryError = QUERY_NOT_CONNECTED;
         return "";
     }
 
@@ -115,6 +123,7 @@ String Commands::sendCommand(String pid, String header) {
         }
     }
     Serial.println("Command " + pid + " timed out. Response buffer: " + responseBuffer);
+    lastQueryError = QUERY_TIMEOUT;
     return "";
 }
 
@@ -206,11 +215,16 @@ double Commands::calculateValue(int commandIndex) const {
 }
 
 double Commands::queryCommand(int commandIndex) {
+    lastQueryCommandIndex = commandIndex;
+    lastQueryResponse = "";
+
     if (!connected || pWriteChar == nullptr) {
+        lastQueryError = QUERY_NOT_CONNECTED;
         return 0.0;
     }
 
     if (commandIndex < 0 || commandIndex >= commandCount) {
+        lastQueryError = QUERY_INVALID_INDEX;
         return 0.0;
     }
 
@@ -218,13 +232,22 @@ double Commands::queryCommand(int commandIndex) {
     int numBytes = commandConfig[commandIndex].numBytes;
     String header = commandConfig[commandIndex].header;
 
+    lastQueryPid = command;
+    lastQueryHeader = normalizeHeader(header.c_str());
+    lastQueryError = QUERY_OK;
+
     String response = sendCommand(command, header);
+    lastQueryResponse = response;
     if (response == "") {
+        if (lastQueryError == QUERY_OK) {
+            lastQueryError = QUERY_TIMEOUT;
+        }
         return 0.0;
     }
 
     parsePIDResponse(response, command, numBytes);
     if (A < 0 || (numBytes > 1 && B < 0)) {
+        lastQueryError = QUERY_PARSE_FAILED;
         return 0.0;
     }
 
@@ -233,6 +256,7 @@ double Commands::queryCommand(int commandIndex) {
         return 0.0;
     }
 
+    lastQueryError = QUERY_OK;
     return calculateValue(commandIndex);
 }
 
@@ -356,6 +380,44 @@ double Commands::getValueByCommandIndex(int commandIndex) {
     }
 
     return queryCommand(commandIndex);
+}
+
+String Commands::getLastQueryDiagnostic() const {
+    String status = "OK";
+    switch (lastQueryError) {
+        case QUERY_OK:
+            status = "OK";
+            break;
+        case QUERY_NOT_CONNECTED:
+            status = "NOT_CONNECTED";
+            break;
+        case QUERY_INVALID_INDEX:
+            status = "INVALID_INDEX";
+            break;
+        case QUERY_TIMEOUT:
+            status = "TIMEOUT";
+            break;
+        case QUERY_PARSE_FAILED:
+            status = "PARSE_FAILED";
+            break;
+    }
+
+    String label = "n/a";
+    if (lastQueryCommandIndex >= 0 && lastQueryCommandIndex < commandCount) {
+        label = String(commandConfig[lastQueryCommandIndex].label);
+    }
+
+    String rawResponse = lastQueryResponse;
+    rawResponse.replace("\r", " ");
+    rawResponse.replace("\n", " ");
+    rawResponse.trim();
+
+    return "Status=" + status +
+           " | Index=" + String(lastQueryCommandIndex) +
+           " | Label=" + label +
+           " | PID=" + lastQueryPid +
+           " | Header=" + lastQueryHeader +
+           " | Raw='" + rawResponse + "'";
 }
 
 void Commands::initializeOBD() {}

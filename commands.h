@@ -20,8 +20,21 @@ struct pidCommandDefinition {
 
 class Commands {
 private:
+    enum QueryError {
+        QUERY_OK = 0,
+        QUERY_NOT_CONNECTED,
+        QUERY_INVALID_INDEX,
+        QUERY_TIMEOUT,
+        QUERY_PARSE_FAILED
+    };
+
     int A;
     int B;
+    QueryError lastQueryError;
+    int lastQueryCommandIndex;
+    String lastQueryPid;
+    String lastQueryHeader;
+    String lastQueryResponse;
     static const pidCommandDefinition commandConfig[];
     static const int commandCount;
     void parsePIDResponse(String response, String pid, int numBytes);
@@ -40,6 +53,7 @@ public:
     String getCommandLabel(int commandIndex) const;
     String getCommandUnits(int commandIndex) const;
     double getValueByCommandIndex(int commandIndex);
+    String getLastQueryDiagnostic() const;
 };
 
 #endif // COMMANDS_H

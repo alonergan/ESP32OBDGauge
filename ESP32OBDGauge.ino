@@ -12,7 +12,7 @@
 #include "config.h"
 #include "screen_manager.h"
 
-bool TESTMODE = true;
+bool TESTMODE = false;
 
 /*
     Variables for settings stored in flash memory
@@ -252,6 +252,7 @@ void loop() {
     static bool ignoreHeldTouchInOptions = false;
     static bool waitingForReleaseAfterOptions = false;
     static bool justExitedOptions = false;
+    static bool waitingForReleaseAfterQuadrantSelector = false;
     static unsigned long touchStartTime = 0;
     const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
     const unsigned long DEBOUNCE_MS = 200;
@@ -285,7 +286,9 @@ void loop() {
                 if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
                     QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
                     if (qg->isSelectorVisible()) {
-                        qg->handleTouch(touch_last_x, touch_last_y);
+                        if (!waitingForReleaseAfterQuadrantSelector) {
+                            qg->handleTouch(touch_last_x, touch_last_y);
+                        }
                         handledSelectorTouch = true;
                     }
                 }
@@ -297,6 +300,7 @@ void loop() {
                     if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
                         QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
                         qg->openSelectorFromTouch(touch_last_x, touch_last_y);
+                        waitingForReleaseAfterQuadrantSelector = true;
                     } else {
                         showOptions();
                         ignoreHeldTouchInOptions = true;
@@ -316,6 +320,11 @@ void loop() {
             ignoreHeldTouchInOptions = false;
         }
 
+        if (waitingForReleaseAfterQuadrantSelector) {
+            waitingForReleaseAfterQuadrantSelector = false;
+            return;
+        }
+
         if (justExitedOptions) {
             justExitedOptions = false;
             return;
@@ -332,8 +341,11 @@ void loop() {
             xSemaphoreGive(gaugeMutex);
 
             if (!handledByQuadrantSelector) {
-                if ((touch_last_x >= 0 && touch_last_x < 30) &&
-                    (touch_last_y > 210 && touch_last_y <= 240)) {
+                if ((touch_last_x >= 0 && touch_last_x <= 40) &&
+                    (touch_last_y >= 0 && touch_last_y <= 40)) {
+                    Serial.println("Last OBD diagnostic: " + commands.getLastQueryDiagnostic());
+                } else if ((touch_last_x >= 0 && touch_last_x < 30) &&
+                           (touch_last_y > 210 && touch_last_y <= 240)) {
                     resetGauge();
                 } else {
                     switchToNextGauge();
