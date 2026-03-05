@@ -138,6 +138,24 @@ private:
     int selectedQuadrant;
     int pageStart;
 
+    String fitTextToWidth(const String& text, int maxWidth) {
+        if (screen.textWidth(text) <= maxWidth) {
+            return text;
+        }
+
+        String fitted = text;
+        while (fitted.length() > 0 && screen.textWidth(fitted + "...") > maxWidth) {
+            fitted.remove(fitted.length() - 1);
+        }
+
+        return fitted + "...";
+    }
+
+    void drawFittedText(const String& text, int x, int y, int maxWidth) {
+        String fitted = fitTextToWidth(text, maxWidth);
+        screen.drawString(fitted, x, y);
+    }
+
     int getQuadrantFromTouch(uint16_t x, uint16_t y) {
         bool right = x >= DISPLAY_WIDTH / 2;
         bool lower = y >= DISPLAY_HEIGHT / 2;
@@ -163,8 +181,11 @@ private:
             String units = commands->getCommandUnits(selectedCommands[i]);
 
             screen.setTextColor(TFT_WHITE, DISPLAY_BG_COLOR);
+            const int textLeft = originX + 8;
+            const int textMaxWidth = boxW - 16;
+
             screen.setFreeFont(FONT_BOLD_12);
-            screen.drawString(label, originX + 8, originY + 8);
+            drawFittedText(label, textLeft, originY + 8, textMaxWidth);
             screen.unloadFont();
 
             screen.setFreeFont(FONT_BOLD_18);
@@ -174,9 +195,17 @@ private:
             screen.unloadFont();
 
             screen.setFreeFont(FONT_NORMAL_12);
-            screen.drawString(units, originX + 8, originY + boxH - 22);
+            drawFittedText(units, textLeft, originY + boxH - 22, textMaxWidth);
             screen.unloadFont();
         }
+
+        screen.setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
+        screen.setTextFont(1);
+        String diag = commands->getLastQueryDiagnostic();
+        if (diag.length() > 52) {
+            diag = diag.substring(0, 52) + "...";
+        }
+        screen.drawString(diag, 2, DISPLAY_HEIGHT - 10, 1);
 
         screen.pushSprite(0, 0);
     }
@@ -205,7 +234,14 @@ private:
             uint16_t bg = active ? TFT_DARKGREEN : TFT_DARKGREY;
             selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 2, bg);
 
-            String rowLabel = commands->getCommandLabel(commandIndex);
+            String originalLabel = commands->getCommandLabel(commandIndex);
+            String rowLabel = originalLabel;
+            while (rowLabel.length() > 0 && selector.textWidth(rowLabel, 2) > selector.width() - 24) {
+                rowLabel.remove(rowLabel.length() - 1);
+            }
+            if (rowLabel != originalLabel) {
+                rowLabel += "...";
+            }
             selector.drawString(rowLabel, 12, rowY + 6, 2);
         }
 
