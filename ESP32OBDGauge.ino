@@ -8,8 +8,8 @@
 #include "g_meter.h"
 #include "acceleration_meter.h"
 #include "quadrant_gauge.h"
-#include "options_screen.h"
 #include "config.h"
+#include "options_screen.h"
 #include "screen_manager.h"
 
 bool TESTMODE = false;
@@ -257,7 +257,9 @@ void loop() {
     const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
     const unsigned long DEBOUNCE_MS = 200;
 
-    if (touch_touched()) {
+    bool currentlyTouched = touch_touched();
+
+    if (currentlyTouched) {
         if (millis() - lastTouchTime > DEBOUNCE_MS) {
             lastTouchTime = millis();
             if (!wasTouched) {
@@ -311,7 +313,7 @@ void loop() {
                 }
             }
         }
-    } else if (wasTouched && !touch_touched()) {
+    } else if (wasTouched) {
         wasTouched = false;
 
         if (waitingForReleaseAfterOptions) {
@@ -350,6 +352,37 @@ void loop() {
                 } else {
                     switchToNextGauge();
                 }
+            }
+        }
+    }
+
+    TouchGesture gesture;
+    if (touch_getGesture(&gesture)) {
+        if (inOptionsScreen) {
+            if (!optionsScreen->handleTouchGesture(gesture)) {
+                exitOptions();
+            }
+        } else {
+            if (gesture.type == TouchGesture::SWIPE_LEFT) {
+                switchToNextGauge();
+            } else if (gesture.type == TouchGesture::SWIPE_RIGHT) {
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                int previousGauge = screenManager.getCurrentGaugeIndex() - 1;
+                if (previousGauge < 0) {
+                    previousGauge = GAUGE_COUNT - 1;
+                }
+                screenManager.setCurrentGauge(previousGauge);
+                currentGauge = screenManager.getCurrentGaugeIndex();
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr) {
+                    current->initialize();
+                }
+                updateCurrentGaugeSettings(currentGauge);
+                xSemaphoreGive(gaugeMutex);
+            } else if (gesture.type == TouchGesture::SWIPE_DOWN) {
+                resetGauge();
+            } else if (gesture.type == TouchGesture::PINCH_IN || gesture.type == TouchGesture::PINCH_OUT) {
+                showOptions();
             }
         }
     }
