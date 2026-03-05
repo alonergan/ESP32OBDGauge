@@ -201,10 +201,7 @@ private:
                 int y = BUTTON_MARGIN + i * (BUTTON_HEIGHT + BUTTON_SPACING);
                 screenSprite.fillRect(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, TFT_DARKGREY);
                 screenSprite.drawRect(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, TFT_WHITE);
-                int textWidth = screenSprite.textWidth(labels[i][j]);
-                int textHeight = screenSprite.fontHeight();
-                screenSprite.setCursor(x + (BUTTON_WIDTH - textWidth) / 2, y + (BUTTON_HEIGHT - textHeight) / 2);
-                screenSprite.print(labels[i][j]);
+                drawButtonLabel(labels[i][j], x, y, BUTTON_WIDTH, BUTTON_HEIGHT);
             }
         }
         screenSprite.pushSprite(0, 0);
@@ -255,10 +252,7 @@ private:
                 int y = BUTTON_MARGIN + i * (BUTTON_HEIGHT + BUTTON_SPACING);
                 screenSprite.fillRect(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, TFT_DARKGREY);
                 screenSprite.drawRect(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, TFT_WHITE);
-                int textWidth = screenSprite.textWidth(labels[i][j]);
-                int textHeight = screenSprite.fontHeight();
-                screenSprite.setCursor(x + (BUTTON_WIDTH - textWidth) / 2, y + (BUTTON_HEIGHT - textHeight) / 2);
-                screenSprite.print(labels[i][j]);
+                drawButtonLabel(labels[i][j], x, y, BUTTON_WIDTH, BUTTON_HEIGHT);
             }
         }
         screenSprite.pushSprite(0, 0);
@@ -281,13 +275,51 @@ private:
                 int y = BUTTON_MARGIN + i * (BUTTON_HEIGHT + BUTTON_SPACING);
                 screenSprite.fillRect(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, TFT_DARKGREY);
                 screenSprite.drawRect(x, y, BUTTON_WIDTH, BUTTON_HEIGHT, TFT_WHITE);
-                int textWidth = screenSprite.textWidth(labels[i][j]);
-                int textHeight = screenSprite.fontHeight();
-                screenSprite.setCursor(x + (BUTTON_WIDTH - textWidth) / 2, y + (BUTTON_HEIGHT - textHeight) / 2);
-                screenSprite.print(labels[i][j]);
+                drawButtonLabel(labels[i][j], x, y, BUTTON_WIDTH, BUTTON_HEIGHT);
             }
         }
         screenSprite.pushSprite(0, 0);
+    }
+
+    void drawButtonLabel(const char* label, int x, int y, int width, int height) {
+        const int horizontalPadding = 6;
+        String text = String(label);
+        int maxTextWidth = width - (horizontalPadding * 2);
+        int lineHeight = screenSprite.fontHeight();
+
+        if (screenSprite.textWidth(text) <= maxTextWidth) {
+            int textX = x + (width - screenSprite.textWidth(text)) / 2;
+            int textY = y + (height - lineHeight) / 2;
+            screenSprite.setCursor(textX, textY);
+            screenSprite.print(text);
+            return;
+        }
+
+        int splitIndex = text.indexOf(' ');
+        if (splitIndex == -1) {
+            String truncated = text;
+            while (truncated.length() > 0 && screenSprite.textWidth(truncated + "...") > maxTextWidth) {
+                truncated.remove(truncated.length() - 1);
+            }
+            truncated += "...";
+            int textX = x + (width - screenSprite.textWidth(truncated)) / 2;
+            int textY = y + (height - lineHeight) / 2;
+            screenSprite.setCursor(textX, textY);
+            screenSprite.print(truncated);
+            return;
+        }
+
+        String line1 = text.substring(0, splitIndex);
+        String line2 = text.substring(splitIndex + 1);
+        int line1Width = screenSprite.textWidth(line1);
+        int line2Width = screenSprite.textWidth(line2);
+        int totalHeight = lineHeight * 2;
+        int firstLineY = y + (height - totalHeight) / 2;
+
+        screenSprite.setCursor(x + (width - line1Width) / 2, firstLineY);
+        screenSprite.print(line1);
+        screenSprite.setCursor(x + (width - line2Width) / 2, firstLineY + lineHeight);
+        screenSprite.print(line2);
     }
 
     void drawColorPicker() {

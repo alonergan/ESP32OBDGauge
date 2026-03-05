@@ -120,6 +120,7 @@ void dataFetchingTask(void* parameter) {
 
 void loop() {
     static bool wasTouched = false;
+    static bool touchHandledForCurrentPress = false;
     static bool ignoreHeldTouchInOptions = false;
     static bool waitingForReleaseAfterOptions = false;
     static bool justExitedOptions = false;
@@ -133,6 +134,7 @@ void loop() {
             if (!wasTouched) {
                 wasTouched = true;
                 touchStartTime = millis();
+                touchHandledForCurrentPress = false;
 
                 if (inOptionsScreen && !waitingForReleaseAfterOptions) {
                     ignoreHeldTouchInOptions = false;
@@ -140,8 +142,9 @@ void loop() {
             }
 
             if (inOptionsScreen) {
-                if (!ignoreHeldTouchInOptions) {
+                if (!ignoreHeldTouchInOptions && !touchHandledForCurrentPress) {
                     if (touch_last_x >= 0 && touch_last_y >= 0) {
+                        touchHandledForCurrentPress = true;
                         if (!optionsScreen->handleTouch(touch_last_x, touch_last_y)) {
                             exitOptions();
                             justExitedOptions = true;
@@ -153,11 +156,13 @@ void loop() {
                 showOptions();
                 ignoreHeldTouchInOptions = true;
                 waitingForReleaseAfterOptions = true;
+                touchHandledForCurrentPress = true;
                 wasTouched = true;  // Don't reset — finger still down
             }
         }
     } else if (wasTouched && !touch_touched()) {
         wasTouched = false;
+        touchHandledForCurrentPress = false;
 
         if (waitingForReleaseAfterOptions) {
             // Now we can allow interaction again
