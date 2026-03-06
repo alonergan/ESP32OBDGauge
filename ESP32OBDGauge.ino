@@ -12,7 +12,7 @@
 #include "options_screen.h"
 #include "screen_manager.h"
 
-bool TESTMODE = false;
+bool TESTMODE = true;
 
 /*
     Variables for settings stored in flash memory

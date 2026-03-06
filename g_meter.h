@@ -87,8 +87,8 @@ public:
         }
 
         Vec3 normalized = calibration.normalize(latestAccel);
-        double gForceX = normalized.y;
-        double gForceY = normalized.x;
+        double gForceX = -normalized.y;
+        double gForceY = -normalized.x;
 
         if (!isfinite(gForceX) || !isfinite(gForceY)) {
             return;
