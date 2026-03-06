@@ -37,10 +37,11 @@ public:
     }
 
     void render(double) override {
-        drawQuadrants();
         if (selectorOpen) {
             drawSelector();
+            return;
         }
+        drawQuadrants();
     }
 
     void reset() override {
