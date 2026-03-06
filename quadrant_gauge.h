@@ -227,14 +227,6 @@ private:
             screen.unloadFont();
         }
 
-        screen.setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
-        screen.setTextFont(1);
-        String diag = commands->getLastQueryDiagnostic();
-        if (diag.length() > 52) {
-            diag = diag.substring(0, 52) + "...";
-        }
-        screen.drawString(diag, 2, DISPLAY_HEIGHT - 10, 1);
-
         screen.pushSprite(0, 0);
     }
 
