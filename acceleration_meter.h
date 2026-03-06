@@ -106,10 +106,12 @@ public:
             case RUNNING:
                 runTimeSeconds = (double)(nowUs - startTimeUs) / 1000000.0;
 
-                if (previousSpeed < 60.0 && latestSpeed >= 60.0 && latestSpeed > previousSpeed) {
-                    double fraction = (60.0 - previousSpeed) / (latestSpeed - previousSpeed);
-                    unsigned long long crossedUs = previousTimeUs + (unsigned long long)(fraction * (double)(nowUs - previousTimeUs));
-                    runTimeSeconds = (double)(crossedUs - startTimeUs) / 1000000.0;
+                if (latestSpeed >= 60.0) {
+                    if (latestSpeed > previousSpeed && previousSpeed < 60.0) {
+                        double fraction = (60.0 - previousSpeed) / (latestSpeed - previousSpeed);
+                        unsigned long long crossedUs = previousTimeUs + (unsigned long long)(fraction * (double)(nowUs - previousTimeUs));
+                        runTimeSeconds = (double)(crossedUs - startTimeUs) / 1000000.0;
+                    }
                     stage = FINISHED;
                     drawTime(runTimeSeconds, TFT_GREEN);
                     drawMessageForStage();

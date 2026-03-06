@@ -86,18 +86,17 @@ public:
         int localX = x;
         int localY = y;
 
-        const int rowHeight = 42;
-        const int top = 48;
-        const int visibleRows = 5;
+        const int rowHeight = 36;
+        const int top = 8;
+        const int bottomButtonY = DISPLAY_HEIGHT - 44;
+        const int visibleRows = (bottomButtonY - top) / rowHeight;
 
-        int prevY = DISPLAY_HEIGHT - 52;
-        int nextY = DISPLAY_HEIGHT - 52;
-        if (localY >= prevY && localY < prevY + 42 && localX >= 10 && localX < 145) {
+        if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= 10 && localX < 145) {
             pageStart = max(0, pageStart - visibleRows);
             return true;
         }
 
-        if (localY >= nextY && localY < nextY + 42 && localX >= (DISPLAY_WIDTH - 145) && localX < (DISPLAY_WIDTH - 10)) {
+        if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= (DISPLAY_WIDTH - 145) && localX < (DISPLAY_WIDTH - 10)) {
             int maxStart = max(0, commands->getCommandCount() - visibleRows);
             pageStart = min(maxStart, pageStart + visibleRows);
             return true;
@@ -213,12 +212,10 @@ private:
         selector.setTextColor(TFT_WHITE, TFT_BLACK);
         selector.setTextFont(1);
 
-        String title = "Select value for quadrant " + String(selectedQuadrant + 1);
-        selector.drawString(title, 8, 12, 2);
-
-        const int rowHeight = 42;
-        const int top = 48;
-        const int visibleRows = 5;
+        const int rowHeight = 36;
+        const int top = 8;
+        const int bottomButtonY = selector.height() - 44;
+        const int visibleRows = (bottomButtonY - top) / rowHeight;
 
         for (int i = 0; i < visibleRows; i++) {
             int commandIndex = pageStart + i;
@@ -229,7 +226,8 @@ private:
             int rowY = top + i * rowHeight;
             bool active = (selectedCommands[selectedQuadrant] == commandIndex);
             uint16_t bg = active ? TFT_DARKGREEN : TFT_DARKGREY;
-            selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 4, bg);
+            selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 3, bg);
+            selector.drawRect(6, rowY, selector.width() - 12, rowHeight - 3, TFT_WHITE);
 
             String originalLabel = commands->getCommandLabel(commandIndex);
             String rowLabel = originalLabel;
@@ -239,14 +237,16 @@ private:
             if (rowLabel != originalLabel) {
                 rowLabel += "...";
             }
-            selector.drawString(rowLabel, 12, rowY + 12, 2);
+            selector.drawString(rowLabel, 12, rowY + 9, 2);
         }
 
-        selector.fillRect(10, selector.height() - 52, 135, 42, TFT_DARKGREY);
-        selector.drawString("Prev", 54, selector.height() - 40, 2);
+        selector.fillRect(10, bottomButtonY, 135, 34, TFT_DARKGREY);
+        selector.drawRect(10, bottomButtonY, 135, 34, TFT_WHITE);
+        selector.drawString("Prev", 54, bottomButtonY + 10, 2);
 
-        selector.fillRect(selector.width() - 145, selector.height() - 52, 135, 42, TFT_DARKGREY);
-        selector.drawString("Next", selector.width() - 100, selector.height() - 40, 2);
+        selector.fillRect(selector.width() - 145, bottomButtonY, 135, 34, TFT_DARKGREY);
+        selector.drawRect(selector.width() - 145, bottomButtonY, 135, 34, TFT_WHITE);
+        selector.drawString("Next", selector.width() - 100, bottomButtonY + 10, 2);
 
         selector.pushSprite(0, 0);
     }
