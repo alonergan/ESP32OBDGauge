@@ -13,7 +13,9 @@ public:
         selector(display),
         selectorOpen(false),
         selectedQuadrant(0),
-        pageStart(0) {
+        pageStart(0),
+        lastSelectorButtonPressMs(0),
+        lastSelectorButtonId(-1) {
         selectedCommands[0] = 8;   // RPM
         selectedCommands[1] = 9;   // Speed
         selectedCommands[2] = 1;   // Coolant temp
@@ -47,6 +49,7 @@ public:
     void reset() override {
         selectorOpen = false;
         pageStart = 0;
+        clearSelectorButtonDebounce();
         drawQuadrants();
     }
 
@@ -74,6 +77,7 @@ public:
     void openSelectorFromTouch(uint16_t x, uint16_t y) {
         selectedQuadrant = getQuadrantFromTouch(x, y);
         pageStart = 0;
+        clearSelectorButtonDebounce();
         selectorOpen = true;
         drawSelector();
     }
@@ -92,15 +96,23 @@ public:
         const int visibleRows = (bottomButtonY - top) / rowHeight;
 
         if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= 10 && localX < 145) {
+            if (!shouldProcessSelectorButton(0)) {
+                return true;
+            }
             pageStart = max(0, pageStart - visibleRows);
             return true;
         }
 
         if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= (DISPLAY_WIDTH - 145) && localX < (DISPLAY_WIDTH - 10)) {
+            if (!shouldProcessSelectorButton(1)) {
+                return true;
+            }
             int maxStart = max(0, commands->getCommandCount() - visibleRows);
             pageStart = min(maxStart, pageStart + visibleRows);
             return true;
         }
+
+        clearSelectorButtonDebounce();
 
         for (int i = 0; i < visibleRows; i++) {
             int rowY = top + i * rowHeight;
@@ -133,6 +145,26 @@ private:
     bool selectorOpen;
     int selectedQuadrant;
     int pageStart;
+    uint32_t lastSelectorButtonPressMs;
+    int lastSelectorButtonId;
+
+    static constexpr uint32_t SELECTOR_BUTTON_DEBOUNCE_MS = 250;
+
+    void clearSelectorButtonDebounce() {
+        lastSelectorButtonId = -1;
+        lastSelectorButtonPressMs = 0;
+    }
+
+    bool shouldProcessSelectorButton(int buttonId) {
+        uint32_t now = millis();
+        if (buttonId == lastSelectorButtonId && (now - lastSelectorButtonPressMs) < SELECTOR_BUTTON_DEBOUNCE_MS) {
+            return false;
+        }
+
+        lastSelectorButtonId = buttonId;
+        lastSelectorButtonPressMs = now;
+        return true;
+    }
 
     String fitTextToWidth(const String& text, int maxWidth) {
         if (screen.textWidth(text) <= maxWidth) {
