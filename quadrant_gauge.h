@@ -29,7 +29,7 @@ public:
             Serial.println("Failed to create QuadrantGauge screen sprite");
         }
 
-        if (!selector.createSprite(DISPLAY_WIDTH - 30, DISPLAY_HEIGHT - 30)) {
+        if (!selector.createSprite(DISPLAY_WIDTH, DISPLAY_HEIGHT)) {
             Serial.println("Failed to create QuadrantGauge selector sprite");
         }
 
@@ -83,25 +83,21 @@ public:
             return false;
         }
 
-        int localX = x - 15;
-        int localY = y - 15;
-        if (localX < 0 || localY < 0 || localX >= (DISPLAY_WIDTH - 30) || localY >= (DISPLAY_HEIGHT - 30)) {
-            selectorOpen = false;
-            return true;
-        }
+        int localX = x;
+        int localY = y;
 
-        const int rowHeight = 24;
-        const int top = 32;
-        const int visibleRows = 7;
+        const int rowHeight = 42;
+        const int top = 48;
+        const int visibleRows = 5;
 
-        int prevY = DISPLAY_HEIGHT - 65;
-        int nextY = DISPLAY_HEIGHT - 65;
-        if (localY >= prevY && localY < prevY + 22 && localX >= 10 && localX < 90) {
+        int prevY = DISPLAY_HEIGHT - 52;
+        int nextY = DISPLAY_HEIGHT - 52;
+        if (localY >= prevY && localY < prevY + 42 && localX >= 10 && localX < 145) {
             pageStart = max(0, pageStart - visibleRows);
             return true;
         }
 
-        if (localY >= nextY && localY < nextY + 22 && localX >= (DISPLAY_WIDTH - 30 - 90) && localX < (DISPLAY_WIDTH - 30 - 10)) {
+        if (localY >= nextY && localY < nextY + 42 && localX >= (DISPLAY_WIDTH - 145) && localX < (DISPLAY_WIDTH - 10)) {
             int maxStart = max(0, commands->getCommandCount() - visibleRows);
             pageStart = min(maxStart, pageStart + visibleRows);
             return true;
@@ -218,11 +214,11 @@ private:
         selector.setTextFont(1);
 
         String title = "Select value for quadrant " + String(selectedQuadrant + 1);
-        selector.drawString(title, 8, 8, 2);
+        selector.drawString(title, 8, 12, 2);
 
-        const int rowHeight = 24;
-        const int top = 32;
-        const int visibleRows = 7;
+        const int rowHeight = 42;
+        const int top = 48;
+        const int visibleRows = 5;
 
         for (int i = 0; i < visibleRows; i++) {
             int commandIndex = pageStart + i;
@@ -233,26 +229,26 @@ private:
             int rowY = top + i * rowHeight;
             bool active = (selectedCommands[selectedQuadrant] == commandIndex);
             uint16_t bg = active ? TFT_DARKGREEN : TFT_DARKGREY;
-            selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 2, bg);
+            selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 4, bg);
 
             String originalLabel = commands->getCommandLabel(commandIndex);
             String rowLabel = originalLabel;
-            while (rowLabel.length() > 0 && selector.textWidth(rowLabel, 2) > selector.width() - 24) {
+            while (rowLabel.length() > 0 && selector.textWidth(rowLabel, 2) > selector.width() - 28) {
                 rowLabel.remove(rowLabel.length() - 1);
             }
             if (rowLabel != originalLabel) {
                 rowLabel += "...";
             }
-            selector.drawString(rowLabel, 12, rowY + 6, 2);
+            selector.drawString(rowLabel, 12, rowY + 12, 2);
         }
 
-        selector.fillRect(10, selector.height() - 35, 80, 22, TFT_BLUE);
-        selector.drawString("Prev", 28, selector.height() - 30, 2);
+        selector.fillRect(10, selector.height() - 52, 135, 42, TFT_DARKGREY);
+        selector.drawString("Prev", 54, selector.height() - 40, 2);
 
-        selector.fillRect(selector.width() - 90, selector.height() - 35, 80, 22, TFT_BLUE);
-        selector.drawString("Next", selector.width() - 72, selector.height() - 30, 2);
+        selector.fillRect(selector.width() - 145, selector.height() - 52, 135, 42, TFT_DARKGREY);
+        selector.drawString("Next", selector.width() - 100, selector.height() - 40, 2);
 
-        selector.pushSprite(15, 15);
+        selector.pushSprite(0, 0);
     }
 };
 
