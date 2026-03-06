@@ -67,8 +67,10 @@ private:
 
     enum ScreenState { MAIN_MENU, ABOUT, BLUETOOTH, COLOR };
     enum ColorState { MAIN_COLOR_MENU, NEEDLE_COLOR, OUTLINE_COLOR, VALUE_COLOR };
+    enum BluetoothState { BLUETOOTH_MENU, BLUETOOTH_STATS };
     ScreenState state;
     ColorState colorState;
+    BluetoothState bluetoothState = BLUETOOTH_MENU;
 
     static const int BUTTON_WIDTH = 140;
     static const int BUTTON_HEIGHT = 100;
@@ -123,6 +125,7 @@ private:
                 return true;
             case 1:
                 state = BLUETOOTH;
+                bluetoothState = BLUETOOTH_MENU;
                 drawBluetoothMenu();
                 return true;
             case 2:
@@ -213,6 +216,15 @@ private:
     }
 
     bool handleBluetoothTouch(uint16_t x, uint16_t y) {
+        if (bluetoothState == BLUETOOTH_STATS) {
+            UIButton backButton(0, "Back", {65, 180, 190, 45});
+            if (backButton.hitTest(x, y)) {
+                bluetoothState = BLUETOOTH_MENU;
+                drawBluetoothMenu();
+            }
+            return true;
+        }
+
         UIButton buttons[4] = {
             buildGridButton(0, 0, 0, "Pair Device"),
             buildGridButton(1, 0, 1, "Stats"),
@@ -222,11 +234,13 @@ private:
 
         int buttonId = hitButton(buttons, 4, x, y);
         if (buttonId == 1) {
+            bluetoothState = BLUETOOTH_STATS;
             drawBluetoothStats();
             return true;
         }
         if (buttonId == 3) {
             state = MAIN_MENU;
+            bluetoothState = BLUETOOTH_MENU;
             drawMainMenu();
             return true;
         }
@@ -271,6 +285,7 @@ private:
     }
 
     void drawBluetoothMenu() {
+        bluetoothState = BLUETOOTH_MENU;
         screenSprite.fillSprite(TFT_BLACK);
         UIButton buttons[4] = {
             buildGridButton(0, 0, 0, "Pair Device"),
@@ -334,8 +349,15 @@ private:
             return;
         }
 
+        if (state == BLUETOOTH && bluetoothState == BLUETOOTH_STATS) {
+            bluetoothState = BLUETOOTH_MENU;
+            drawBluetoothMenu();
+            return;
+        }
+
         state = MAIN_MENU;
         colorState = MAIN_COLOR_MENU;
+        bluetoothState = BLUETOOTH_MENU;
         drawMainMenu();
     }
 

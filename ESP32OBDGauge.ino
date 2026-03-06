@@ -249,10 +249,9 @@ void dataFetchingTask(void* parameter) {
 
 void loop() {
     static bool wasTouched = false;
-    static bool ignoreHeldTouchInOptions = false;
     static bool waitingForReleaseAfterOptions = false;
-    static bool justExitedOptions = false;
     static bool waitingForReleaseAfterQuadrantSelector = false;
+    static bool touchHandledForCurrentPress = false;
     static unsigned long touchStartTime = 0;
     const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
     const unsigned long DEBOUNCE_MS = 200;
@@ -265,23 +264,10 @@ void loop() {
             if (!wasTouched) {
                 wasTouched = true;
                 touchStartTime = millis();
-
-                if (inOptionsScreen && !waitingForReleaseAfterOptions) {
-                    ignoreHeldTouchInOptions = false;
-                }
+                touchHandledForCurrentPress = false;
             }
 
-            if (inOptionsScreen) {
-                if (!ignoreHeldTouchInOptions) {
-                    if (touch_last_x >= 0 && touch_last_y >= 0) {
-                        if (!optionsScreen->handleTouch(touch_last_x, touch_last_y)) {
-                            exitOptions();
-                            justExitedOptions = true;
-                            Serial.println("Just exited options screen");
-                        }
-                    }
-                }
-            } else {
+            if (!inOptionsScreen) {
                 bool handledSelectorTouch = false;
                 xSemaphoreTake(gaugeMutex, portMAX_DELAY);
                 Gauge* current = screenManager.getCurrentGauge();
@@ -305,11 +291,11 @@ void loop() {
                         waitingForReleaseAfterQuadrantSelector = true;
                     } else {
                         showOptions();
-                        ignoreHeldTouchInOptions = true;
                         waitingForReleaseAfterOptions = true;
                     }
                     xSemaphoreGive(gaugeMutex);
                     wasTouched = true;
+                    touchHandledForCurrentPress = true;
                 }
             }
         }
@@ -319,40 +305,11 @@ void loop() {
         if (waitingForReleaseAfterOptions) {
             // Now we can allow interaction again
             waitingForReleaseAfterOptions = false;
-            ignoreHeldTouchInOptions = false;
         }
 
         if (waitingForReleaseAfterQuadrantSelector) {
             waitingForReleaseAfterQuadrantSelector = false;
             return;
-        }
-
-        if (justExitedOptions) {
-            justExitedOptions = false;
-            return;
-        }
-
-        if (!inOptionsScreen && millis() - touchStartTime < LONG_PRESS_THRESHOLD) {
-            bool handledByQuadrantSelector = false;
-            xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-            Gauge* current = screenManager.getCurrentGauge();
-            if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
-                QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
-                handledByQuadrantSelector = qg->isSelectorVisible();
-            }
-            xSemaphoreGive(gaugeMutex);
-
-            if (!handledByQuadrantSelector) {
-                if ((touch_last_x >= 0 && touch_last_x <= 40) &&
-                    (touch_last_y >= 0 && touch_last_y <= 40)) {
-                    Serial.println("Last OBD diagnostic: " + commands.getLastQueryDiagnostic());
-                } else if ((touch_last_x >= 0 && touch_last_x < 30) &&
-                           (touch_last_y > 210 && touch_last_y <= 240)) {
-                    resetGauge();
-                } else {
-                    switchToNextGauge();
-                }
-            }
         }
     }
 
@@ -362,8 +319,26 @@ void loop() {
             if (!optionsScreen->handleTouchGesture(gesture)) {
                 exitOptions();
             }
+            touchHandledForCurrentPress = false;
         } else {
-            if (gesture.type == TouchGesture::SWIPE_LEFT) {
+            if (gesture.type == TouchGesture::TAP) {
+                bool handledByQuadrantSelector = false;
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                    if (qg->isSelectorVisible()) {
+                        qg->handleTouch(gesture.endX, gesture.endY);
+                        handledByQuadrantSelector = true;
+                    }
+                }
+                xSemaphoreGive(gaugeMutex);
+
+                if (handledByQuadrantSelector || touchHandledForCurrentPress) {
+                    touchHandledForCurrentPress = false;
+                    return;
+                }
+            } else if (gesture.type == TouchGesture::SWIPE_LEFT) {
                 switchToNextGauge();
             } else if (gesture.type == TouchGesture::SWIPE_RIGHT) {
                 xSemaphoreTake(gaugeMutex, portMAX_DELAY);
@@ -384,6 +359,8 @@ void loop() {
             } else if (gesture.type == TouchGesture::PINCH_IN || gesture.type == TouchGesture::PINCH_OUT) {
                 showOptions();
             }
+
+            touchHandledForCurrentPress = false;
         }
     }
 
