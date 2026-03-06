@@ -217,7 +217,7 @@ private:
 
     bool handleBluetoothTouch(uint16_t x, uint16_t y) {
         if (bluetoothState == BLUETOOTH_STATS) {
-            UIButton backButton(0, "Back", {65, 180, 190, 45});
+            UIButton backButton(0, "Back", {10, 205, 300, 30});
             if (backButton.hitTest(x, y)) {
                 bluetoothState = BLUETOOTH_MENU;
                 drawBluetoothMenu();
@@ -301,7 +301,7 @@ private:
         screenSprite.fillSprite(TFT_BLACK);
 
         UITable statsTable;
-        statsTable.configure({20, 20, 280, 140}, 4, 2);
+        statsTable.configure({5, 5, 310, 190}, 4, 2);
         statsTable.setCell(0, 0, "Metric");
         statsTable.setCell(0, 1, "Value");
         statsTable.setCell(1, 0, "Connected");
@@ -312,7 +312,7 @@ private:
         statsTable.setCell(3, 1, SOFTWARE_VERSION);
         statsTable.draw(screenSprite, true);
 
-        UIButton backButton(0, "Back", {65, 180, 190, 45});
+        UIButton backButton(0, "Back", {10, 205, 300, 30});
         backButton.draw(screenSprite, 2, 1);
         screenSprite.pushSprite(0, 0);
     }
