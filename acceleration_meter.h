@@ -5,7 +5,7 @@
 
 class AccelerationMeter : public Gauge {
 public:
-    AccelerationMeter(TFT_eSPI* display) :
+    AccelerationMeter(TFT_eSPI* display, uint16_t outlineColor, uint16_t labelColor, uint16_t valueColor) :
         Gauge(display),
         time(display),
         timeLabel(display),
@@ -19,21 +19,25 @@ public:
         stationaryStartMs(0),
         startTimeUs(0),
         previousTimeUs(0),
-        stage(WAIT_STATIONARY) {}
+        stage(WAIT_STATIONARY),
+        outlineColor(outlineColor),
+        labelColor(labelColor),
+        valueColor(valueColor) {}
 
     void initialize() override {
         display->fillScreen(DISPLAY_BG_COLOR);
+        display->drawRect(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, outlineColor);
 
         speed.setColorDepth(8);
         speed.setTextSize(7);
         speed.setTextFont(1);
-        speed.setTextColor(TFT_RED, DISPLAY_BG_COLOR);
+        speed.setTextColor(valueColor, DISPLAY_BG_COLOR);
         speed.createSprite(speed.textWidth("188"), speed.fontHeight());
 
-        speedLabel.setColorDepth(1);
+        speedLabel.setColorDepth(8);
         speedLabel.setTextFont(1);
         speedLabel.setTextSize(3);
-        speedLabel.setTextColor(TFT_WHITE);
+        speedLabel.setTextColor(labelColor);
         speedLabel.createSprite(speedLabel.textWidth(AMETER_SPEED_LABEL), speedLabel.fontHeight());
         speedLabel.setCursor(0, 0);
         speedLabel.println(AMETER_SPEED_LABEL);
@@ -41,13 +45,13 @@ public:
         time.setColorDepth(8);
         time.setTextSize(5);
         time.setTextFont(1);
-        time.setTextColor(AMETER_TIME_COLOR, DISPLAY_BG_COLOR);
+        time.setTextColor(valueColor, DISPLAY_BG_COLOR);
         time.createSprite(time.textWidth("00.000"), time.fontHeight());
 
-        timeLabel.setColorDepth(1);
+        timeLabel.setColorDepth(8);
         timeLabel.setTextFont(1);
         timeLabel.setTextSize(3);
-        timeLabel.setTextColor(TFT_WHITE);
+        timeLabel.setTextColor(labelColor);
         timeLabel.createSprite(timeLabel.textWidth(AMETER_TIME_LABEL), timeLabel.fontHeight());
         timeLabel.setCursor(0, 0);
         timeLabel.println(AMETER_TIME_LABEL);
@@ -55,14 +59,14 @@ public:
         message.setColorDepth(8);
         message.setTextFont(2);
         message.setTextSize(1);
-        message.setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
+        message.setTextColor(labelColor, DISPLAY_BG_COLOR);
         message.createSprite(DISPLAY_WIDTH, 20);
 
         speedLabel.pushSprite((DISPLAY_WIDTH - speedLabel.width()) / 2, 60 - speedLabel.height() - AMETER_V_PADDING);
         timeLabel.pushSprite((DISPLAY_WIDTH - timeLabel.width()) / 2, 175 - timeLabel.height() - AMETER_V_PADDING);
 
         drawSpeed((int)round(latestSpeed));
-        drawTime(runTimeSeconds, stage == FINISHED ? TFT_GREEN : AMETER_TIME_COLOR);
+        drawTime(runTimeSeconds, valueColor);
         drawMessageForStage();
     }
 
@@ -85,7 +89,7 @@ public:
                     if (nowMs - stationaryStartMs >= 3000) {
                         stage = READY;
                         runTimeSeconds = 0.0;
-                        drawTime(runTimeSeconds, AMETER_TIME_COLOR);
+                        drawTime(runTimeSeconds, valueColor);
                         drawMessageForStage();
                     }
                 } else {
@@ -113,10 +117,10 @@ public:
                         runTimeSeconds = (double)(crossedUs - startTimeUs) / 1000000.0;
                     }
                     stage = FINISHED;
-                    drawTime(runTimeSeconds, TFT_GREEN);
+                    drawTime(runTimeSeconds, valueColor);
                     drawMessageForStage();
                 } else {
-                    drawTime(runTimeSeconds, AMETER_TIME_COLOR);
+                    drawTime(runTimeSeconds, valueColor);
                 }
 
                 previousSpeed = latestSpeed;
@@ -151,9 +155,12 @@ public:
         initialize();
     }
 
-    uint32_t getCurrentNeedleColor() { return 0; }
-    uint32_t getCurrentOutlineColor() { return 0; }
-    uint32_t getCurrentValueColor() { return 0; }
+    void setThemeColors(uint16_t label, uint16_t value, uint16_t outline) override {
+        labelColor = label; valueColor = value; outlineColor = outline;
+    }
+    uint32_t getCurrentLabelColor() override { return labelColor; }
+    uint32_t getCurrentOutlineColor() override { return outlineColor; }
+    uint32_t getCurrentValueColor() override { return valueColor; }
 
 private:
     enum MeterStage { WAIT_STATIONARY, READY, RUNNING, FINISHED };
@@ -167,6 +174,9 @@ private:
     unsigned long long startTimeUs;
     unsigned long long previousTimeUs;
     MeterStage stage;
+    uint16_t outlineColor;
+    uint16_t labelColor;
+    uint16_t valueColor;
 
     void drawSpeed(int speedInt) {
         if (speedInt == displayedSpeed) {
@@ -199,19 +209,16 @@ private:
 
     void drawMessageForStage() {
         const char* text = "";
-        uint16_t color = TFT_YELLOW;
+        uint16_t color = labelColor;
 
         if (stage == WAIT_STATIONARY) {
             text = "Keep vehicle still for 3s to arm";
         } else if (stage == READY) {
             text = "Ready - accelerate to start";
-            color = TFT_CYAN;
         } else if (stage == RUNNING) {
             text = "Measuring 0-60...";
-            color = TFT_ORANGE;
         } else if (stage == FINISHED) {
             text = "Done - tap reset button";
-            color = TFT_GREEN;
         }
 
         message.fillSprite(DISPLAY_BG_COLOR);

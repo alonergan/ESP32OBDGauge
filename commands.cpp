@@ -364,6 +364,26 @@ String Commands::getCommandUnits(int commandIndex) const {
     return String(commandConfig[commandIndex].units);
 }
 
+double Commands::getCommandMin(int commandIndex) const {
+    if (commandIndex < 0 || commandIndex >= commandCount) return 0.0;
+    return commandConfig[commandIndex].minValue;
+}
+
+double Commands::getCommandMax(int commandIndex) const {
+    if (commandIndex < 0 || commandIndex >= commandCount) return 100.0;
+    return commandConfig[commandIndex].maxValue;
+}
+
+uint8_t Commands::getCommandDecimals(int commandIndex) const {
+    if (commandIndex < 0 || commandIndex >= commandCount) return 1;
+    const int formula = commandConfig[commandIndex].formula;
+    if (formula == FORMULA_RPM || formula == FORMULA_SPEED_MPH ||
+        formula == FORMULA_RUNTIME_SECONDS || formula == FORMULA_TEMP_F) {
+        return 0;
+    }
+    return 1;
+}
+
 double Commands::getValueByCommandIndex(int commandIndex) {
     if (commandIndex < 0 || commandIndex >= commandCount) {
         return 0.0;

@@ -7,7 +7,7 @@
 
 class GMeter : public Gauge {
 public:
-    GMeter(TFT_eSPI* display) :
+    GMeter(TFT_eSPI* display, uint16_t outlineColor, uint16_t labelColor, uint16_t valueColor) :
         Gauge(display),
         mpu(),
         combined(display),
@@ -25,7 +25,10 @@ public:
         filteredX(0.0),
         filteredY(0.0),
         hasFilter(false),
-        calibrationDirty(false) {}
+        calibrationDirty(false),
+        outlineColor(outlineColor),
+        labelColor(labelColor),
+        valueColor(valueColor) {}
 
     void initialize() override {
         display->fillScreen(DISPLAY_BG_COLOR);
@@ -44,7 +47,7 @@ public:
         history.fillSprite(TFT_TRANSPARENT);
 
         drawOutline();
-        combined.fillCircle(GMETER_RADIUS, GMETER_RADIUS, GMETER_POINT_RADIUS, GMETER_POINT_COLOR);
+        combined.fillCircle(GMETER_RADIUS, GMETER_RADIUS, GMETER_POINT_RADIUS, valueColor);
 
         createTextSprite(minX, "0.00");
         createTextSprite(maxX, "0.00");
@@ -78,7 +81,7 @@ public:
 
     void render(double) override {
         if (calibration.isCollecting()) {
-            display->setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
+            display->setTextColor(labelColor, DISPLAY_BG_COLOR);
             display->setTextSize(1);
             display->setCursor(5, 5);
             int pct = (calibration.getSampleCount() * 100) / calibration.getRequiredSamples();
@@ -126,8 +129,8 @@ public:
 
         if (abs(posX - oldX) > 1 || abs(posY - oldY) > 1) {
             drawOutline();
-            combined.fillCircle(posX - (gaugeCenterX - GMETER_RADIUS), posY - (gaugeCenterY - GMETER_RADIUS), GMETER_POINT_RADIUS, GMETER_POINT_COLOR);
-            history.fillCircle(posX - (gaugeCenterX - GMETER_RADIUS), posY - (gaugeCenterY - GMETER_RADIUS), GMETER_POINT_RADIUS, GMETER_HISTORY_COLOR);
+            combined.fillCircle(posX - (gaugeCenterX - GMETER_RADIUS), posY - (gaugeCenterY - GMETER_RADIUS), GMETER_POINT_RADIUS, valueColor);
+            history.fillCircle(posX - (gaugeCenterX - GMETER_RADIUS), posY - (gaugeCenterY - GMETER_RADIUS), GMETER_POINT_RADIUS, valueColor);
             history.pushSprite(gaugeCenterX - GMETER_RADIUS, gaugeCenterY - GMETER_RADIUS, TFT_TRANSPARENT);
             combined.pushSprite(gaugeCenterX - GMETER_RADIUS, gaugeCenterY - GMETER_RADIUS, TFT_TRANSPARENT);
             oldX = posX;
@@ -180,9 +183,12 @@ public:
     }
 
     GaugeType getType() const override { return G_METER; }
-    uint32_t getCurrentNeedleColor() { return 0; }
-    uint32_t getCurrentOutlineColor() { return 0; }
-    uint32_t getCurrentValueColor() { return 0; }
+    void setThemeColors(uint16_t label, uint16_t value, uint16_t outline) override {
+        labelColor = label; valueColor = value; outlineColor = outline;
+    }
+    uint32_t getCurrentLabelColor() override { return labelColor; }
+    uint32_t getCurrentOutlineColor() override { return outlineColor; }
+    uint32_t getCurrentValueColor() override { return valueColor; }
 
 private:
     Adafruit_MPU6050 mpu;
@@ -194,6 +200,9 @@ private:
     bool hasFilter;
     bool calibrationInProgress = false;
     bool calibrationDirty;
+    uint16_t outlineColor;
+    uint16_t labelColor;
+    uint16_t valueColor;
     GMeterCalibration calibration;
 
     void drawOutline() {
@@ -201,19 +210,19 @@ private:
         int lineSize = GMETER_LINE_SIZE;
         for (int i = 3; i > 0; i--) {
             int lineRadius = i * (GMETER_RADIUS / 4);
-            combined.drawLine(GMETER_RADIUS - lineRadius, GMETER_RADIUS - lineSize, GMETER_RADIUS - lineRadius, GMETER_RADIUS + lineSize, GMETER_OUTLINE_COLOR);
-            combined.drawLine(GMETER_RADIUS + lineRadius, GMETER_RADIUS - lineSize, GMETER_RADIUS + lineRadius, GMETER_RADIUS + lineSize, GMETER_OUTLINE_COLOR);
-            combined.drawLine(GMETER_RADIUS - lineSize, GMETER_RADIUS - lineRadius, GMETER_RADIUS + lineSize, GMETER_RADIUS - lineRadius, GMETER_OUTLINE_COLOR);
-            combined.drawLine(GMETER_RADIUS - lineSize, GMETER_RADIUS + lineRadius, GMETER_RADIUS + lineSize, GMETER_RADIUS + lineRadius, GMETER_OUTLINE_COLOR);
+            combined.drawLine(GMETER_RADIUS - lineRadius, GMETER_RADIUS - lineSize, GMETER_RADIUS - lineRadius, GMETER_RADIUS + lineSize, outlineColor);
+            combined.drawLine(GMETER_RADIUS + lineRadius, GMETER_RADIUS - lineSize, GMETER_RADIUS + lineRadius, GMETER_RADIUS + lineSize, outlineColor);
+            combined.drawLine(GMETER_RADIUS - lineSize, GMETER_RADIUS - lineRadius, GMETER_RADIUS + lineSize, GMETER_RADIUS - lineRadius, outlineColor);
+            combined.drawLine(GMETER_RADIUS - lineSize, GMETER_RADIUS + lineRadius, GMETER_RADIUS + lineSize, GMETER_RADIUS + lineRadius, outlineColor);
         }
-        combined.drawSmoothCircle(GMETER_RADIUS, GMETER_RADIUS, GMETER_RADIUS, GMETER_OUTLINE_COLOR, TFT_TRANSPARENT);
+        combined.drawSmoothCircle(GMETER_RADIUS, GMETER_RADIUS, GMETER_RADIUS, outlineColor, TFT_TRANSPARENT);
     }
 
     void createTextSprite(TFT_eSprite& sprite, const char* text) {
         sprite.setColorDepth(8);
         sprite.setTextFont(GMETER_TEXT_FONT);
         sprite.setTextSize(GMETER_TEXT_SIZE);
-        sprite.setTextColor(GMETER_TEXT_COLOR);
+        sprite.setTextColor(valueColor);
         int textWidth = sprite.textWidth("0.00");
         int textHeight = sprite.fontHeight();
         sprite.createSprite(textWidth + 10, textHeight + 10);

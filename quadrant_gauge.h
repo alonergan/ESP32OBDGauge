@@ -6,7 +6,8 @@
 
 class QuadrantGauge : public Gauge {
 public:
-    QuadrantGauge(TFT_eSPI* display, Commands* commands) :
+    QuadrantGauge(TFT_eSPI* display, Commands* commands, const int commandIndices[4],
+                  uint16_t outlineColor, uint16_t labelColor, uint16_t valueColor) :
         Gauge(display),
         commands(commands),
         screen(display),
@@ -15,12 +16,12 @@ public:
         selectedQuadrant(0),
         pageStart(0),
         lastSelectorButtonPressMs(0),
-        lastSelectorButtonId(-1) {
-        selectedCommands[0] = 8;   // RPM
-        selectedCommands[1] = 9;   // Speed
-        selectedCommands[2] = 1;   // Coolant temp
-        selectedCommands[3] = 29;  // Fuel rate
+        lastSelectorButtonId(-1),
+        outlineColor(outlineColor),
+        labelColor(labelColor),
+        valueColor(valueColor) {
         for (int i = 0; i < 4; i++) {
+            selectedCommands[i] = commandIndices[i];
             values[i] = 0.0;
         }
     }
@@ -59,9 +60,14 @@ public:
         return QUADRANT_GAUGE;
     }
 
-    uint32_t getCurrentNeedleColor() override { return TFT_WHITE; }
-    uint32_t getCurrentOutlineColor() override { return TFT_WHITE; }
-    uint32_t getCurrentValueColor() override { return TFT_WHITE; }
+    void setThemeColors(uint16_t label, uint16_t value, uint16_t outline) override {
+        labelColor = label;
+        valueColor = value;
+        outlineColor = outline;
+    }
+    uint32_t getCurrentLabelColor() override { return labelColor; }
+    uint32_t getCurrentOutlineColor() override { return outlineColor; }
+    uint32_t getCurrentValueColor() override { return valueColor; }
 
     void setQuadrantReading(int quadrant, double value) {
         if (quadrant < 0 || quadrant >= 4) {
@@ -147,6 +153,9 @@ private:
     int pageStart;
     uint32_t lastSelectorButtonPressMs;
     int lastSelectorButtonId;
+    uint16_t outlineColor;
+    uint16_t labelColor;
+    uint16_t valueColor;
 
     static constexpr uint32_t SELECTOR_BUTTON_DEBOUNCE_MS = 250;
 
@@ -197,8 +206,8 @@ private:
 
     void drawQuadrants() {
         screen.fillSprite(DISPLAY_BG_COLOR);
-        screen.drawLine(DISPLAY_WIDTH / 2, 0, DISPLAY_WIDTH / 2, DISPLAY_HEIGHT, TFT_DARKGREY);
-        screen.drawLine(0, DISPLAY_HEIGHT / 2, DISPLAY_WIDTH, DISPLAY_HEIGHT / 2, TFT_DARKGREY);
+        screen.drawLine(DISPLAY_WIDTH / 2, 0, DISPLAY_WIDTH / 2, DISPLAY_HEIGHT, outlineColor);
+        screen.drawLine(0, DISPLAY_HEIGHT / 2, DISPLAY_WIDTH, DISPLAY_HEIGHT / 2, outlineColor);
 
         for (int i = 0; i < 4; i++) {
             int originX = (i % 2) * (DISPLAY_WIDTH / 2);
@@ -209,7 +218,7 @@ private:
             String label = commands->getCommandLabel(selectedCommands[i]);
             String units = commands->getCommandUnits(selectedCommands[i]);
 
-            screen.setTextColor(TFT_WHITE, DISPLAY_BG_COLOR);
+            screen.setTextColor(labelColor, DISPLAY_BG_COLOR);
             const int textMaxWidth = boxW - 16;
             const int textCenterX = originX + (boxW / 2);
 
@@ -219,12 +228,14 @@ private:
 
             screen.setFreeFont(FONT_BOLD_24);
             String valueText = String(values[i], 1);
+            screen.setTextColor(valueColor, DISPLAY_BG_COLOR);
             screen.setTextDatum(MC_DATUM);
             screen.drawString(valueText, textCenterX, originY + (boxH / 2));
             screen.setTextDatum(TL_DATUM);
             screen.unloadFont();
 
             screen.setFreeFont(FONT_NORMAL_8);
+            screen.setTextColor(labelColor, DISPLAY_BG_COLOR);
             drawCenteredFittedText(units, textCenterX, originY + boxH - 24, textMaxWidth);
             screen.unloadFont();
         }

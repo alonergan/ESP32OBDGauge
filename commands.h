@@ -52,6 +52,9 @@ public:
     int getCommandCount() const;
     String getCommandLabel(int commandIndex) const;
     String getCommandUnits(int commandIndex) const;
+    double getCommandMin(int commandIndex) const;
+    double getCommandMax(int commandIndex) const;
+    uint8_t getCommandDecimals(int commandIndex) const;
     double getValueByCommandIndex(int commandIndex);
     String getLastQueryDiagnostic() const;
 };

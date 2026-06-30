@@ -18,9 +18,13 @@ bool TESTMODE = true;
     Variables for settings stored in flash memory
 */
 uint32_t outlineColor = GAUGE_FG_COLOR;
-uint32_t needleColor = NEEDLE_COLOR_PRIMARY;
-uint32_t valueColor = VALUE_TEXT_COLOR;
+uint32_t labelColor = GAUGE_FG_COLOR;
+uint32_t valueColor = NEEDLE_COLOR_PRIMARY;
 int currentGauge = 0;
+int singleCommandIndex = 8;
+int dualLeftCommandIndex = 32;
+int dualRightCommandIndex = 33;
+int quadrantCommandIndices[4] = {8, 9, 1, 29};
 float mpuCalibrationMatrix[3][3]; // Persisted G-meter rotation matrix
 Vec3 mpuCalibrationBias = {0.0f, 0.0f, 0.0f};
 bool gmeterCalibrationStored = false;
@@ -67,11 +71,11 @@ void setup() {
     }
 
     gaugeMutex = xSemaphoreCreateMutex();
-    gauges[0] = new NeedleGauge(&display, 0, outlineColor, needleColor, valueColor); // Configurable: RPM/Boost/Torque/Power
-    gauges[1] = new DualGauge(&display, 0, outlineColor, needleColor, valueColor);
-    gauges[2] = new GMeter(&display);
-    gauges[3] = new AccelerationMeter(&display);
-    gauges[4] = new QuadrantGauge(&display, &commands);
+    gauges[0] = new NeedleGauge(&display, &commands, singleCommandIndex, outlineColor, labelColor, valueColor);
+    gauges[1] = new DualGauge(&display, &commands, dualLeftCommandIndex, dualRightCommandIndex, outlineColor, labelColor, valueColor);
+    gauges[2] = new GMeter(&display, outlineColor, labelColor, valueColor);
+    gauges[3] = new AccelerationMeter(&display, outlineColor, labelColor, valueColor);
+    gauges[4] = new QuadrantGauge(&display, &commands, quadrantCommandIndices, outlineColor, labelColor, valueColor);
 
     if (gmeterCalibrationStored) {
         static_cast<GMeter*>(gauges[2])->setStoredCalibration(mpuCalibrationMatrix, mpuCalibrationBias);
@@ -93,9 +97,17 @@ void readSettings() {
 
     // Try to get stored settings
     outlineColor = preferences.getUInt("outlineColor", GAUGE_FG_COLOR);
-    needleColor = preferences.getUInt("needleColor", NEEDLE_COLOR_PRIMARY);
-    valueColor = preferences.getUInt("valueColor", VALUE_TEXT_COLOR);
+    labelColor = preferences.getUInt("labelColor", GAUGE_FG_COLOR);
+    valueColor = preferences.getUInt("valueColor", preferences.getUInt("needleColor", NEEDLE_COLOR_PRIMARY));
     currentGauge = preferences.getInt("currentGauge", 0);
+    int commandCount = commands.getCommandCount();
+    singleCommandIndex = constrain(preferences.getInt("singleCmd", 8), 0, commandCount - 1);
+    dualLeftCommandIndex = constrain(preferences.getInt("dualLeft", 32), 0, commandCount - 1);
+    dualRightCommandIndex = constrain(preferences.getInt("dualRight", 33), 0, commandCount - 1);
+    for (int i = 0; i < 4; i++) {
+        String key = "quad" + String(i);
+        quadrantCommandIndices[i] = constrain(preferences.getInt(key.c_str(), quadrantCommandIndices[i]), 0, commandCount - 1);
+    }
 
     gmeterCalibrationStored = preferences.getBool("gmCalSaved", false);
     for (int i = 0; i < 3; i++) {
@@ -125,14 +137,25 @@ void updateCurrentGaugeSettings(int newCurrentGauge) {
     return;
 }
 
-void updateCurrentGaugeColorSettings(uint32_t currNeedleColor, uint32_t currOutlineColor, uint32_t currValueColor) {
+void updateGaugeConfigurationSettings() {
     // Initialize preferences
     preferences.begin("OBDGAUGE", false);
 
-    // Set new settings 
-    preferences.putUInt("needleColor", currNeedleColor);
-    preferences.putUInt("outlineColor", currOutlineColor);
-    preferences.putUInt("valueColor", currValueColor);
+    Gauge* themeSource = gauges[0];
+    preferences.putUInt("labelColor", themeSource->getCurrentLabelColor());
+    preferences.putUInt("outlineColor", themeSource->getCurrentOutlineColor());
+    preferences.putUInt("valueColor", themeSource->getCurrentValueColor());
+
+    NeedleGauge* single = static_cast<NeedleGauge*>(gauges[0]);
+    DualGauge* dual = static_cast<DualGauge*>(gauges[1]);
+    QuadrantGauge* quadrant = static_cast<QuadrantGauge*>(gauges[4]);
+    preferences.putInt("singleCmd", single->getCommandIndex());
+    preferences.putInt("dualLeft", dual->getLeftCommandIndex());
+    preferences.putInt("dualRight", dual->getRightCommandIndex());
+    for (int i = 0; i < 4; i++) {
+        String key = "quad" + String(i);
+        preferences.putInt(key.c_str(), quadrant->getCommandIndexForQuadrant(i));
+    }
 
     // Close preferences
     preferences.end();
@@ -176,7 +199,7 @@ void dataFetchingTask(void* parameter) {
             case Gauge::NEEDLE_GAUGE:
                 if (obdConnected) {
                     NeedleGauge* ng = static_cast<NeedleGauge*>(gauge);
-                    double reading = commands.getReading(ng->getGaugeTypeIndex());
+                    double reading = commands.getValueByCommandIndex(ng->getCommandIndex());
                     ng->setReading(reading);
                     vTaskDelay(100 / portTICK_PERIOD_MS); // 10Hz
                 } else {
@@ -189,9 +212,10 @@ void dataFetchingTask(void* parameter) {
                 break;
             case Gauge::DUAL_GAUGE:
                 if (obdConnected) {
-                    struct dualGaugeReading x = commands.getDualReading(); // Gets torque and horsepower
                     DualGauge* dg = static_cast<DualGauge*>(gauge);
-                    dg->setReadings(x.readings[0], x.readings[1]);
+                    double left = commands.getValueByCommandIndex(dg->getLeftCommandIndex());
+                    double right = commands.getValueByCommandIndex(dg->getRightCommandIndex());
+                    dg->setReadings(left, right);
                     vTaskDelay(100 / portTICK_PERIOD_MS); // 10Hz
                 } else {
                     if (millis() - lastReconnectAttempt > RECONNECT_INTERVAL) {
@@ -290,7 +314,7 @@ void resetGauge() {
 
 void showOptions() {
     inOptionsScreen = true;
-    optionsScreen = new OptionsScreen(&display, gauges, GAUGE_COUNT);
+    optionsScreen = new OptionsScreen(&display, gauges, GAUGE_COUNT, &commands);
     optionsScreen->initialize();
 }
 
@@ -308,15 +332,7 @@ void exitOptions() {
     }
     current->initialize();
 
-    Gauge::GaugeType gaugeType = current->getType();
-
-    if (gaugeType == Gauge::NEEDLE_GAUGE || gaugeType == Gauge::DUAL_GAUGE) {
-        // Store new preferences when exiting options screen only for needle and dual gauges
-        uint32_t currNeedleColor = current->getCurrentNeedleColor();
-        uint32_t currOutlineColor = current->getCurrentOutlineColor();
-        uint32_t currValueColor = current->getCurrentValueColor();
-        updateCurrentGaugeColorSettings(currNeedleColor, currOutlineColor, currValueColor);
-    }
+    updateGaugeConfigurationSettings();
 
     xSemaphoreGive(gaugeMutex);
 }
@@ -327,7 +343,10 @@ void loop() {
     static bool waitingForReleaseAfterQuadrantSelector = false;
     static bool touchHandledForCurrentPress = false;
     static unsigned long touchStartTime = 0;
+    static unsigned long lastQuadrantTapTime = 0;
+    static int lastQuadrantTap = -1;
     const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
+    const unsigned long DOUBLE_TAP_THRESHOLD = 350;
     const unsigned long DEBOUNCE_MS = 200;
 
     bool currentlyTouched = touch_touched();
@@ -350,16 +369,7 @@ void loop() {
                     if (qg->isSelectorVisible()) {
                         if (!touchHandledForCurrentPress) {
                             qg->handleTouch(touch_last_x, touch_last_y);
-                            touchHandledForCurrentPress = true;
-                            waitingForReleaseAfterQuadrantSelector = true;
-                        }
-                        handledSelectorTouch = true;
-                    }
-                } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
-                    NeedleGauge* ng = static_cast<NeedleGauge*>(current);
-                    if (ng->isTypeSelectorVisible()) {
-                        if (!touchHandledForCurrentPress) {
-                            ng->handleTypeSelectorTouch(touch_last_x, touch_last_y);
+                            if (!qg->isSelectorVisible()) updateGaugeConfigurationSettings();
                             touchHandledForCurrentPress = true;
                             waitingForReleaseAfterQuadrantSelector = true;
                         }
@@ -369,21 +379,10 @@ void loop() {
                 xSemaphoreGive(gaugeMutex);
 
                 if (!handledSelectorTouch && millis() - touchStartTime > LONG_PRESS_THRESHOLD) {
-                    xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-                    current = screenManager.getCurrentGauge();
-                    if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
-                        QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
-                        qg->openSelectorFromTouch(touch_last_x, touch_last_y);
-                        waitingForReleaseAfterQuadrantSelector = true;
-                    } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
-                        NeedleGauge* ng = static_cast<NeedleGauge*>(current);
-                        ng->openTypeSelector();
-                        waitingForReleaseAfterQuadrantSelector = true;
-                    } else {
-                        showOptions();
-                        waitingForReleaseAfterOptions = true;
-                    }
-                    xSemaphoreGive(gaugeMutex);
+                    showOptions();
+                    waitingForReleaseAfterOptions = true;
+                    lastQuadrantTapTime = 0;
+                    lastQuadrantTap = -1;
                     wasTouched = true;
                     touchHandledForCurrentPress = true;
                 }
@@ -414,13 +413,22 @@ void loop() {
                     QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
                     if (qg->isSelectorVisible()) {
                         qg->handleTouch(gesture.endX, gesture.endY);
+                        if (!qg->isSelectorVisible()) updateGaugeConfigurationSettings();
                         handledByQuadrantSelector = true;
-                    }
-                } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
-                    NeedleGauge* ng = static_cast<NeedleGauge*>(current);
-                    if (ng->isTypeSelectorVisible()) {
-                        ng->handleTypeSelectorTouch(gesture.endX, gesture.endY);
-                        handledByQuadrantSelector = true;
+                    } else {
+                        int tappedQuadrant = (gesture.endX >= DISPLAY_WIDTH / 2 ? 1 : 0) +
+                                            (gesture.endY >= DISPLAY_HEIGHT / 2 ? 2 : 0);
+                        unsigned long now = millis();
+                        if (tappedQuadrant == lastQuadrantTap && now - lastQuadrantTapTime <= DOUBLE_TAP_THRESHOLD) {
+                            qg->openSelectorFromTouch(gesture.endX, gesture.endY);
+                            handledByQuadrantSelector = true;
+                            lastQuadrantTapTime = 0;
+                            lastQuadrantTap = -1;
+                        } else {
+                            lastQuadrantTap = tappedQuadrant;
+                            lastQuadrantTapTime = now;
+                            handledByQuadrantSelector = true;
+                        }
                     }
                 }
                 xSemaphoreGive(gaugeMutex);
@@ -447,8 +455,6 @@ void loop() {
                 xSemaphoreGive(gaugeMutex);
             } else if (gesture.type == TouchGesture::SWIPE_DOWN) {
                 resetGauge();
-            } else if (gesture.type == TouchGesture::PINCH_IN || gesture.type == TouchGesture::PINCH_OUT) {
-                showOptions();
             }
 
             touchHandledForCurrentPress = false;

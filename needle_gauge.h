@@ -2,31 +2,34 @@
 #define NEEDLE_GAUGE_H
 
 #include "gauge.h"
+#include "commands.h"
 #include "ui_library.h"
 
 class NeedleGauge : public Gauge {
 public:
-    NeedleGauge(TFT_eSPI* display, int gaugeType, uint32_t outlineColor, uint32_t needleColor, uint32_t valueColor) : 
+    NeedleGauge(TFT_eSPI* display, Commands* commands, int commandIndex,
+                uint32_t outlineColor, uint32_t labelColor, uint32_t valueColor) :
         Gauge(display),
+        commands(commands),
         gaugeOutline(display),
         gaugeNeedle(display),
         gaugeValue(display),
         gaugeEraser(display),
         gaugeTicks(display),
         stats(display),
-        valueLabel(gaugeTypes[gaugeType][0]),
-        valueUnits(gaugeTypes[gaugeType][1]),
-        minValue(gaugeTypes[gaugeType][2].toDouble()),
-        maxValue(gaugeTypes[gaugeType][3].toDouble()),
-        valueType(gaugeTypes[gaugeType][4]),
-        gaugeTypeIndex(gaugeType),
+        valueLabel(commands->getCommandLabel(commandIndex)),
+        valueUnits(commands->getCommandUnits(commandIndex)),
+        minValue(commands->getCommandMin(commandIndex)),
+        maxValue(commands->getCommandMax(commandIndex)),
+        commandIndex(commandIndex),
+        valueDecimals(commands->getCommandDecimals(commandIndex)),
         targetValue(0.0),
         currentAngle(GAUGE_START_ANGLE),
         oldAngle(GAUGE_START_ANGLE),
         sweepState(SWEEP_UP),
         sweepStartTime(0),
         sweepValue(0.0),
-        needleColor(needleColor),
+        labelColor(labelColor),
         outlineColor(outlineColor),
         valueColor(valueColor) {}
 
@@ -59,98 +62,36 @@ public:
         targetValue = constrain(reading, minValue, maxValue);
     }
 
-    void setGaugeType(int newGaugeType) {
-        if (newGaugeType < 0 || newGaugeType > 3 || newGaugeType == gaugeTypeIndex) {
+    void setCommandIndex(int newCommandIndex) {
+        if (newCommandIndex < 0 || newCommandIndex >= commands->getCommandCount() || newCommandIndex == commandIndex) {
             return;
         }
 
-        gaugeTypeIndex = newGaugeType;
-        valueLabel = gaugeTypes[gaugeTypeIndex][0];
-        valueUnits = gaugeTypes[gaugeTypeIndex][1];
-        minValue = gaugeTypes[gaugeTypeIndex][2].toDouble();
-        maxValue = gaugeTypes[gaugeTypeIndex][3].toDouble();
-        valueType = gaugeTypes[gaugeTypeIndex][4];
+        commandIndex = newCommandIndex;
+        valueLabel = commands->getCommandLabel(commandIndex);
+        valueUnits = commands->getCommandUnits(commandIndex);
+        minValue = commands->getCommandMin(commandIndex);
+        maxValue = commands->getCommandMax(commandIndex);
+        valueDecimals = commands->getCommandDecimals(commandIndex);
         targetValue = minValue;
         resetSweep();
-        initialize();
     }
 
-    int getGaugeTypeIndex() const {
-        return gaugeTypeIndex;
+    int getCommandIndex() const {
+        return commandIndex;
     }
 
-    void openTypeSelector() {
-        selectorOpen = true;
-        drawTypeSelector();
+    void setThemeColors(uint16_t label, uint16_t value, uint16_t outline) override {
+        labelColor = label;
+        valueColor = value;
+        outlineColor = outline;
     }
 
-    bool isTypeSelectorVisible() const {
-        return selectorOpen;
-    }
-
-    bool handleTypeSelectorTouch(uint16_t x, uint16_t y) {
-        if (!selectorOpen) {
-            return false;
-        }
-
-        UIButton buttons[4] = {
-            buildSelectorButton(0, 0, 0, "RPM"),
-            buildSelectorButton(1, 0, 1, "BOOST"),
-            buildSelectorButton(2, 1, 0, "TORQUE"),
-            buildSelectorButton(3, 1, 1, "POWER")
-        };
-
-        for (int i = 0; i < 4; i++) {
-            if (buttons[i].hitTest(x, y)) {
-                selectorOpen = false;
-                setGaugeType(buttons[i].getId());
-                return true;
-            }
-        }
-
-        selectorOpen = false;
-        initialize();
-        return true;
-    }
-
-    void setNeedleColor(uint16_t color) {
-        needleColor = color;
-        // Recreate needle sprite with new color
-        gaugeNeedle.deleteSprite();
-        createNeedle();
-        plotNeedle(currentAngle);
-    }
-
-    void setOutlineColor(uint16_t color) {
-        outlineColor = color;
-        gaugeOutline.deleteSprite();
-        createOutline();
-    }
-
-    void setValueColor(uint16_t color) {
-        valueColor = color;
-        gaugeValue.deleteSprite();
-        createValue();
-        plotValue(0.0);
-    }
-
-    uint32_t getCurrentNeedleColor() {
-        return needleColor;
-    }
-
-    uint32_t getCurrentOutlineColor() {
-        return outlineColor;
-    }
-
-    uint32_t getCurrentValueColor() {
-        return valueColor;
-    }
+    uint32_t getCurrentLabelColor() override { return labelColor; }
+    uint32_t getCurrentOutlineColor() override { return outlineColor; }
+    uint32_t getCurrentValueColor() override { return valueColor; }
 
     void render(double) override {
-        if (selectorOpen) {
-            return;
-        }
-
         const unsigned long SWEEP_UP_DURATION = 1500; // 1 second up
         const unsigned long SWEEP_DOWN_DURATION = 1500; // 1 second down
         unsigned long currentTime = millis();
@@ -221,54 +162,20 @@ public:
     }
 
 private:
+    Commands* commands;
     TFT_eSprite gaugeOutline, gaugeNeedle, gaugeValue, gaugeEraser, gaugeTicks, stats;
     double targetValue, currentAngle, oldAngle;
     double minValue, maxValue;
-    String valueLabel, valueUnits, valueType;
-    uint16_t needleColor, outlineColor, valueColor;
-    int gaugeTypeIndex;
-    bool selectorOpen = false;
+    String valueLabel, valueUnits;
+    uint16_t labelColor, outlineColor, valueColor;
+    int commandIndex;
+    uint8_t valueDecimals;
 
     // Sweep state
     enum SweepState { SWEEP_UP, SWEEP_DOWN, SWEEP_COMPLETE };
     SweepState sweepState;
     unsigned long sweepStartTime;
     double sweepValue;
-
-    static String gaugeTypes[4][5];
-
-    static const int SELECTOR_BUTTON_MARGIN = 10;
-    static const int SELECTOR_BUTTON_SPACING = 10;
-
-    UIButton buildSelectorButton(int id, int row, int col, const char* label) {
-        int buttonWidth = (DISPLAY_WIDTH - (SELECTOR_BUTTON_MARGIN * 2) - SELECTOR_BUTTON_SPACING) / 2;
-        int buttonHeight = (DISPLAY_HEIGHT - (SELECTOR_BUTTON_MARGIN * 2) - SELECTOR_BUTTON_SPACING) / 2;
-        UIRect rect = {
-            static_cast<int16_t>(SELECTOR_BUTTON_MARGIN + col * (buttonWidth + SELECTOR_BUTTON_SPACING)),
-            static_cast<int16_t>(SELECTOR_BUTTON_MARGIN + row * (buttonHeight + SELECTOR_BUTTON_SPACING)),
-            static_cast<int16_t>(buttonWidth),
-            static_cast<int16_t>(buttonHeight)
-        };
-        return UIButton(id, label, rect, TFT_DARKGREY, TFT_WHITE, TFT_WHITE);
-    }
-
-    void drawTypeSelector() {
-        display->fillScreen(TFT_BLACK);
-        const char* labels[4] = {"RPM", "BOOST", "TORQUE", "POWER"};
-        for (int i = 0; i < 4; i++) {
-            UIButton button = buildSelectorButton(i, i / 2, i % 2, labels[i]);
-            UIRect rect = button.getBounds();
-            display->fillRect(rect.x, rect.y, rect.w, rect.h, TFT_DARKGREY);
-            display->drawRect(rect.x, rect.y, rect.w, rect.h, TFT_WHITE);
-            display->setTextFont(2);
-            display->setTextSize(1);
-            display->setTextColor(TFT_WHITE, TFT_DARKGREY);
-            int textWidth = display->textWidth(labels[i]);
-            int textHeight = display->fontHeight();
-            display->setCursor(rect.x + (rect.w - textWidth) / 2, rect.y + (rect.h - textHeight) / 2);
-            display->print(labels[i]);
-        }
-    }
 
     void resetSweep() {
         sweepState = SWEEP_UP;
@@ -310,7 +217,7 @@ private:
         drawArcCaps(gaugeOutline);
 
         gaugeOutline.setFreeFont(FONT_BOLD_14);
-        gaugeOutline.setTextColor(outlineColor);
+        gaugeOutline.setTextColor(labelColor);
         int textWidth = gaugeOutline.textWidth(valueLabel);
         int x = (GAUGE_WIDTH - textWidth) / 2;
         gaugeOutline.drawString(valueLabel, x, GAUGE_RADIUS + GAUGE_MARGIN_TOP - 20);
@@ -399,7 +306,7 @@ private:
         }
         else {
             // Draw Arc
-            gaugeNeedle.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - 2, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH + 2, GAUGE_START_ANGLE, newAngle, needleColor, GAUGE_BG_COLOR, false);
+            gaugeNeedle.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - 2, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH + 2, GAUGE_START_ANGLE, newAngle, valueColor, GAUGE_BG_COLOR, false);
         }
         
         // Restore the caps after the opaque eraser/needle arc crosses them.
@@ -417,31 +324,26 @@ private:
         gaugeValue.setFreeFont(FONT_BOLD_18);
         gaugeValue.setTextColor(valueColor, DISPLAY_BG_COLOR);
 
-        if (valueType == "int") {
+        if (valueDecimals == 0) {
             int intVal = (int)round(val);
             int textWidth = gaugeValue.textWidth(String(intVal));
             int x = (VALUE_WIDTH - textWidth) / 2;
             gaugeValue.drawNumber(intVal, x, 0);
         } else {
-            int textWidth = gaugeValue.textWidth(String(val, 1));
+            int textWidth = gaugeValue.textWidth(String(val, static_cast<unsigned int>(valueDecimals)));
             int x = (VALUE_WIDTH - textWidth) / 2;
-            gaugeValue.drawFloat(val, 1, x, 0);
+            gaugeValue.drawFloat(val, valueDecimals, x, 0);
         }
         gaugeValue.pushSprite(VALUE_X, VALUE_Y + GAUGE_MARGIN_TOP);
         gaugeValue.unloadFont();
     }
 
     double calculateAngle(double value) {
-        double angle = (double)GAUGE_START_ANGLE + ((value / maxValue) * 240.0); // Start angle plus the portion of the gauge based on the value
+        const double range = maxValue - minValue;
+        const double normalized = range > 0.0 ? (value - minValue) / range : 0.0;
+        double angle = (double)GAUGE_START_ANGLE + (normalized * 240.0);
         return constrain(angle, GAUGE_START_ANGLE, GAUGE_END_ANGLE);
     }
-};
-
-String NeedleGauge::gaugeTypes[4][5] = {
-    {"RPM", "", "0", "7000", "int"},
-    {"BOOST", "psi", "0.0", "22.0", "double"},
-    {"TORQUE", "lb-ft", "0", "445", "int"},
-    {"POWER", "hp", "0", "450", "int"}
 };
 
 #endif
