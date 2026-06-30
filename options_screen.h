@@ -57,7 +57,13 @@ public:
         }
 
         return true;
+      }
+      state = MAIN_MENU;
+      drawMainMenu();
+      return true;
     }
+    return true;
+  }
 
 private:
     TFT_eSPI* display;
@@ -380,6 +386,22 @@ private:
             }
         }
     }
+    screenSprite.setTextColor(TFT_WHITE);
+    screenSprite.setTextSize(1);
+    screenSprite.setTextFont(2);
+    screenSprite.setCursor(15, 220);
+    screenSprite.print("Select a color or swipe right to return");
+    screenSprite.pushSprite(0, 0);
+  }
+
+  void triggerGMeterCalibration() {
+    for (int i = 0; i < numGauges; i++) {
+      if (gauges[i]->getType() == Gauge::G_METER) {
+        static_cast<GMeter*>(gauges[i])->beginManualCalibration();
+        break;
+      }
+    }
+  }
 
     void updateOutlineColor(uint16_t color) {
         for (int i = 0; i < numGauges; i++) {
@@ -391,6 +413,7 @@ private:
             }
         }
     }
+  }
 
     void updateValueColor(uint16_t color) {
         for (int i = 0; i < numGauges; i++) {
@@ -402,6 +425,7 @@ private:
             }
         }
     }
+  }
 };
 
 #endif

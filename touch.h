@@ -40,7 +40,8 @@ struct TouchGesture {
 int touch_last_x = 0, touch_last_y = 0;
 unsigned short int width = 0, height = 0, rotation, min_x = 0, max_x = 0, min_y = 0, max_y = 0;
 
-FT6336 ts = FT6336(TOUCH_FT6336_SDA, TOUCH_FT6336_SCL, TOUCH_FT6336_INT, TOUCH_FT6336_RST, max(TOUCH_MAP_X1, TOUCH_MAP_X2), max(TOUCH_MAP_Y1, TOUCH_MAP_Y2));
+FT6336 ts = FT6336(TOUCH_FT6336_SDA, TOUCH_FT6336_SCL, TOUCH_FT6336_INT, TOUCH_FT6336_RST,
+                   max(TOUCH_MAP_X1, TOUCH_MAP_X2), max(TOUCH_MAP_Y1, TOUCH_MAP_Y2));
 
 static bool touch_active = false;
 static bool touch_has_second = false;
@@ -85,6 +86,7 @@ void touch_init(unsigned short int w, unsigned short int h, unsigned char r) {
     default:
       break;
   }
+
   ts.begin();
   ts.setRotation(r);
 }

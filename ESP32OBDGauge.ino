@@ -11,6 +11,7 @@
 #include "config.h"
 #include "options_screen.h"
 #include "screen_manager.h"
+#include "ui_touch.h"
 
 bool TESTMODE = false;
 
@@ -38,6 +39,7 @@ unsigned long lastTouchTime = 0;
 bool obdConnected = false;
 OptionsScreen* optionsScreen = nullptr;
 bool inOptionsScreen = false;
+TouchGestureEngine touchGestures;
 
 void setup() {
     Serial.begin(115200);
@@ -320,9 +322,12 @@ void loop() {
             waitingForReleaseAfterOptions = false;
         }
 
-        if (waitingForReleaseAfterQuadrantSelector) {
-            waitingForReleaseAfterQuadrantSelector = false;
-            return;
+    if (inOptionsScreen) {
+        if (gesture.type != TouchGestureEngine::NONE) {
+            if (!optionsScreen->handleGesture(gesture.type)) {
+                exitOptions();
+                justExitedOptions = true;
+            }
         }
     }
 
@@ -383,6 +388,22 @@ void loop() {
         }
     }
 
+    if (!sample.touched) {
+        if (waitingForReleaseAfterOptions) {
+            waitingForReleaseAfterOptions = false;
+        }
+
+        if (waitingForReleaseAfterQuadrantSelector) {
+            waitingForReleaseAfterQuadrantSelector = false;
+            return;
+        }
+
+        if (justExitedOptions) {
+            justExitedOptions = false;
+            return;
+        }
+    }
+
     // Render
     if (!inOptionsScreen) {
         xSemaphoreTake(gaugeMutex, portMAX_DELAY);
@@ -406,21 +427,34 @@ void loop() {
         }
 
         xSemaphoreGive(gaugeMutex);
-        //if (obdConnected) {
-            //display.drawRect(0, 0, 10, 10, TFT_GREEN);
-        //}
-        //else {
-            //display.drawRect(0, 0, 10, 10, TFT_RED);
-        //}
     }
-
-    // Limit to ~200 FPS
-    //delay(250);
 }
 
 void switchToNextGauge() {
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
     screenManager.moveNext(obdConnected, FALLBACK_GAUGE_INDEX);
+    currentGauge = screenManager.getCurrentGaugeIndex();
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current != nullptr) {
+        current->initialize();
+    }
+
+    updateCurrentGaugeSettings(currentGauge);
+    xSemaphoreGive(gaugeMutex);
+}
+
+void switchToPreviousGauge() {
+    xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+    if (obdConnected) {
+        int prev = screenManager.getCurrentGaugeIndex() - 1;
+        if (prev < 0) {
+            prev = GAUGE_COUNT - 1;
+        }
+        screenManager.setCurrentGauge(prev);
+    } else {
+        screenManager.setCurrentGauge(FALLBACK_GAUGE_INDEX);
+    }
+
     currentGauge = screenManager.getCurrentGaugeIndex();
     Gauge* current = screenManager.getCurrentGauge();
     if (current != nullptr) {
