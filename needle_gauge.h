@@ -2,6 +2,7 @@
 #define NEEDLE_GAUGE_H
 
 #include "gauge.h"
+#include "ui_library.h"
 
 class NeedleGauge : public Gauge {
 public:
@@ -18,6 +19,7 @@ public:
         minValue(gaugeTypes[gaugeType][2].toDouble()),
         maxValue(gaugeTypes[gaugeType][3].toDouble()),
         valueType(gaugeTypes[gaugeType][4]),
+        gaugeTypeIndex(gaugeType),
         targetValue(0.0),
         currentAngle(GAUGE_START_ANGLE),
         oldAngle(GAUGE_START_ANGLE),
@@ -55,6 +57,60 @@ public:
 
     void setReading(double reading) {
         targetValue = constrain(reading, minValue, maxValue);
+    }
+
+    void setGaugeType(int newGaugeType) {
+        if (newGaugeType < 0 || newGaugeType > 3 || newGaugeType == gaugeTypeIndex) {
+            return;
+        }
+
+        gaugeTypeIndex = newGaugeType;
+        valueLabel = gaugeTypes[gaugeTypeIndex][0];
+        valueUnits = gaugeTypes[gaugeTypeIndex][1];
+        minValue = gaugeTypes[gaugeTypeIndex][2].toDouble();
+        maxValue = gaugeTypes[gaugeTypeIndex][3].toDouble();
+        valueType = gaugeTypes[gaugeTypeIndex][4];
+        targetValue = minValue;
+        resetSweep();
+        initialize();
+    }
+
+    int getGaugeTypeIndex() const {
+        return gaugeTypeIndex;
+    }
+
+    void openTypeSelector() {
+        selectorOpen = true;
+        drawTypeSelector();
+    }
+
+    bool isTypeSelectorVisible() const {
+        return selectorOpen;
+    }
+
+    bool handleTypeSelectorTouch(uint16_t x, uint16_t y) {
+        if (!selectorOpen) {
+            return false;
+        }
+
+        UIButton buttons[4] = {
+            buildSelectorButton(0, 0, 0, "RPM"),
+            buildSelectorButton(1, 0, 1, "BOOST"),
+            buildSelectorButton(2, 1, 0, "TORQUE"),
+            buildSelectorButton(3, 1, 1, "POWER")
+        };
+
+        for (int i = 0; i < 4; i++) {
+            if (buttons[i].hitTest(x, y)) {
+                selectorOpen = false;
+                setGaugeType(buttons[i].getId());
+                return true;
+            }
+        }
+
+        selectorOpen = false;
+        initialize();
+        return true;
     }
 
     void setNeedleColor(uint16_t color) {
@@ -166,6 +222,8 @@ private:
     double minValue, maxValue;
     String valueLabel, valueUnits, valueType;
     uint16_t needleColor, outlineColor, valueColor;
+    int gaugeTypeIndex;
+    bool selectorOpen = false;
 
     // Sweep state
     enum SweepState { SWEEP_UP, SWEEP_DOWN, SWEEP_COMPLETE };
@@ -174,6 +232,47 @@ private:
     double sweepValue;
 
     static String gaugeTypes[4][5];
+
+    static const int SELECTOR_BUTTON_MARGIN = 10;
+    static const int SELECTOR_BUTTON_SPACING = 10;
+
+    UIButton buildSelectorButton(int id, int row, int col, const char* label) {
+        int buttonWidth = (DISPLAY_WIDTH - (SELECTOR_BUTTON_MARGIN * 2) - SELECTOR_BUTTON_SPACING) / 2;
+        int buttonHeight = (DISPLAY_HEIGHT - (SELECTOR_BUTTON_MARGIN * 2) - SELECTOR_BUTTON_SPACING) / 2;
+        UIRect rect = {
+            static_cast<int16_t>(SELECTOR_BUTTON_MARGIN + col * (buttonWidth + SELECTOR_BUTTON_SPACING)),
+            static_cast<int16_t>(SELECTOR_BUTTON_MARGIN + row * (buttonHeight + SELECTOR_BUTTON_SPACING)),
+            static_cast<int16_t>(buttonWidth),
+            static_cast<int16_t>(buttonHeight)
+        };
+        return UIButton(id, label, rect, TFT_DARKGREY, TFT_WHITE, TFT_WHITE);
+    }
+
+    void drawTypeSelector() {
+        display->fillScreen(TFT_BLACK);
+        const char* labels[4] = {"RPM", "BOOST", "TORQUE", "POWER"};
+        for (int i = 0; i < 4; i++) {
+            UIButton button = buildSelectorButton(i, i / 2, i % 2, labels[i]);
+            UIRect rect = button.getBounds();
+            display->fillRect(rect.x, rect.y, rect.w, rect.h, TFT_DARKGREY);
+            display->drawRect(rect.x, rect.y, rect.w, rect.h, TFT_WHITE);
+            display->setTextFont(2);
+            display->setTextSize(1);
+            display->setTextColor(TFT_WHITE, TFT_DARKGREY);
+            int textWidth = display->textWidth(labels[i]);
+            int textHeight = display->fontHeight();
+            display->setCursor(rect.x + (rect.w - textWidth) / 2, rect.y + (rect.h - textHeight) / 2);
+            display->print(labels[i]);
+        }
+    }
+
+    void resetSweep() {
+        sweepState = SWEEP_UP;
+        sweepStartTime = millis();
+        sweepValue = minValue;
+        currentAngle = GAUGE_START_ANGLE;
+        oldAngle = GAUGE_START_ANGLE;
+    }
 
     void createOutline() {
         if (!gaugeOutline.createSprite(GAUGE_WIDTH, GAUGE_HEIGHT)) {

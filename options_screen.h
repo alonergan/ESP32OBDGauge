@@ -3,55 +3,59 @@
 
 #include <TFT_eSPI.h>
 #include "config.h"
+#include "ui_library.h"
+#include "touch.h"
 #include "gauge.h"
-#include "g_meter.h"
 #include "needle_gauge.h"
 #include "dual_gauge.h"
-#include "ui_components.h"
-#include "ui_touch.h"
+#include "g_meter.h"
 
 class OptionsScreen {
 public:
-  OptionsScreen(TFT_eSPI* display, Gauge** gauges, int numGauges)
-      : display(display), gauges(gauges), numGauges(numGauges), screenSprite(display), state(MAIN_MENU), colorState(MAIN_COLOR_MENU),
-        bluetoothState(MAIN_BLUETOOTH_MENU) {}
+    OptionsScreen(TFT_eSPI* display, Gauge** gauges, int numGauges)
+        : display(display), gauges(gauges), numGauges(numGauges), screenSprite(display), state(MAIN_MENU), colorState(MAIN_COLOR_MENU) {}
 
-  void initialize() {
-    display->fillScreen(TFT_BLACK);
-    if (!screenSprite.createSprite(DISPLAY_WIDTH, DISPLAY_HEIGHT)) {
-      Serial.println("Failed to create options screen sprite");
-      return;
+    void initialize() {
+        display->fillScreen(TFT_BLACK);
+        if (!screenSprite.createSprite(DISPLAY_WIDTH, DISPLAY_HEIGHT)) {
+            Serial.println("Failed to create options screen sprite");
+            return;
+        }
+        drawMainMenu();
     }
-    drawMainMenu();
-  }
 
-  bool handleTouch(uint16_t x, uint16_t y) {
-    switch (state) {
-      case MAIN_MENU:
-        return handleMainMenuTap(x, y);
-      case ABOUT:
-        return handleAboutTap(x, y);
-      case BLUETOOTH:
-        return handleBluetoothTap(x, y);
-      case COLOR:
-        return handleColorTap(x, y);
+    bool handleTouch(uint16_t x, uint16_t y) {
+        return handleTouchGesture({TouchGesture::TAP, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(x), static_cast<int16_t>(y), 0, 0, 1.0f});
     }
-    return true;
-  }
 
-  bool handleGesture(TouchGestureEngine::GestureType gesture) {
-    if (gesture == TouchGestureEngine::SWIPE_RIGHT || gesture == TouchGestureEngine::SWIPE_DOWN) {
-      if (state == MAIN_MENU) {
-        return false;
-      }
-      if (state == COLOR && colorState != MAIN_COLOR_MENU) {
-        colorState = MAIN_COLOR_MENU;
-        drawColorMenu();
-        return true;
-      }
-      if (state == BLUETOOTH && bluetoothState != MAIN_BLUETOOTH_MENU) {
-        bluetoothState = MAIN_BLUETOOTH_MENU;
-        drawBluetoothMenu();
+    bool handleTouchGesture(const TouchGesture& gesture) {
+        if (gesture.type == TouchGesture::SWIPE_RIGHT || gesture.type == TouchGesture::SWIPE_DOWN) {
+            if (state == MAIN_MENU) {
+                return false;
+            }
+            goBack();
+            return true;
+        }
+
+        int16_t x = gesture.endX;
+        int16_t y = gesture.endY;
+
+        if (state == MAIN_MENU) {
+            return handleMainMenuTouch(x, y);
+        }
+
+        if (state == ABOUT) {
+            return handleAboutTouch(x, y);
+        }
+
+        if (state == BLUETOOTH) {
+            return handleBluetoothTouch(x, y);
+        }
+
+        if (state == COLOR) {
+            return handleColorTouch(x, y);
+        }
+
         return true;
       }
       state = MAIN_MENU;
@@ -62,229 +66,325 @@ public:
   }
 
 private:
-  enum ScreenState { MAIN_MENU, ABOUT, BLUETOOTH, COLOR };
-  enum ColorState { MAIN_COLOR_MENU, NEEDLE_COLOR, OUTLINE_COLOR, VALUE_COLOR };
-  enum BluetoothState { MAIN_BLUETOOTH_MENU, STATS_MENU };
+    TFT_eSPI* display;
+    Gauge** gauges;
+    int numGauges;
+    TFT_eSprite screenSprite;
 
-  TFT_eSPI* display;
-  Gauge** gauges;
-  int numGauges;
-  TFT_eSprite screenSprite;
-  ScreenState state;
-  ColorState colorState;
-  BluetoothState bluetoothState;
+    enum ScreenState { MAIN_MENU, ABOUT, BLUETOOTH, COLOR };
+    enum ColorState { MAIN_COLOR_MENU, NEEDLE_COLOR, OUTLINE_COLOR, VALUE_COLOR };
+    enum BluetoothState { BLUETOOTH_MENU, BLUETOOTH_STATS };
+    ScreenState state;
+    ColorState colorState;
+    BluetoothState bluetoothState = BLUETOOTH_MENU;
 
-  static const int BUTTON_MARGIN = 10;
-  static const int BUTTON_SPACING = 20;
-  static const int COLOR_SWATCH_SIZE = 60;
+    static const int BUTTON_WIDTH = 140;
+    static const int BUTTON_HEIGHT = 100;
+    static const int BUTTON_SPACING = 20;
+    static const int BUTTON_MARGIN = 10;
+    static const int COLOR_SWATCH_SIZE = 60;
 
-  uint16_t colorOptions[12] = {TFT_RED, TFT_GREEN, TFT_BLUE, TFT_YELLOW, TFT_ORANGE, TFT_DARKGREEN,
-                               TFT_CYAN, TFT_GOLD, TFT_VIOLET, TFT_PURPLE, TFT_SILVER, TFT_WHITE};
+    uint16_t colorOptions[12] = {
+        TFT_RED, TFT_GREEN, TFT_BLUE, TFT_YELLOW,
+        TFT_ORANGE, TFT_DARKGREEN, TFT_CYAN, TFT_GOLD,
+        TFT_VIOLET, TFT_PURPLE, TFT_SILVER, TFT_WHITE
+    };
 
-  bool handleMainMenuTap(uint16_t x, uint16_t y) {
-    UIButtonGrid grid;
-    grid.configure({BUTTON_MARGIN, BUTTON_MARGIN, DISPLAY_WIDTH - (2 * BUTTON_MARGIN), DISPLAY_HEIGHT - (2 * BUTTON_MARGIN)}, 2, 2, BUTTON_SPACING);
-    int8_t index = grid.hitTest(x, y);
-
-    if (index == 0) {
-      state = ABOUT;
-      drawAboutMenu();
-      return true;
-    }
-    if (index == 1) {
-      state = BLUETOOTH;
-      bluetoothState = MAIN_BLUETOOTH_MENU;
-      drawBluetoothMenu();
-      return true;
-    }
-    if (index == 2) {
-      state = COLOR;
-      colorState = MAIN_COLOR_MENU;
-      drawColorMenu();
-      return true;
-    }
-    if (index == 3) {
-      return false;
-    }
-    return true;
-  }
-
-  bool handleAboutTap(uint16_t x, uint16_t y) {
-    UIButton calibrate({65, 90, 190, 55}, "Start Calibration", TFT_DARKGREEN);
-    UIButton back({65, 160, 190, 55}, "Back", TFT_DARKGREY);
-
-    if (calibrate.hitTest(x, y)) {
-      triggerGMeterCalibration();
-      drawAboutMenu();
-    } else if (back.hitTest(x, y)) {
-      state = MAIN_MENU;
-      drawMainMenu();
-    }
-    return true;
-  }
-
-  bool handleBluetoothTap(uint16_t x, uint16_t y) {
-    if (bluetoothState == STATS_MENU) {
-      UIButton back({65, 185, 190, 45}, "Back", TFT_DARKGREY);
-      if (back.hitTest(x, y)) {
-        bluetoothState = MAIN_BLUETOOTH_MENU;
-        drawBluetoothMenu();
-      }
-      return true;
+    UIButton buildGridButton(int id, int row, int col, const char* label, uint16_t color = TFT_DARKGREY) {
+        UIRect rect = {
+            static_cast<int16_t>(BUTTON_MARGIN + col * (BUTTON_WIDTH + BUTTON_SPACING)),
+            static_cast<int16_t>(BUTTON_MARGIN + row * (BUTTON_HEIGHT + BUTTON_SPACING)),
+            static_cast<int16_t>(BUTTON_WIDTH),
+            static_cast<int16_t>(BUTTON_HEIGHT)
+        };
+        return UIButton(id, label, rect, color, TFT_WHITE, TFT_WHITE);
     }
 
-    UIButtonGrid grid;
-    grid.configure({BUTTON_MARGIN, BUTTON_MARGIN, DISPLAY_WIDTH - (2 * BUTTON_MARGIN), DISPLAY_HEIGHT - (2 * BUTTON_MARGIN)}, 2, 2, BUTTON_SPACING);
-    int8_t index = grid.hitTest(x, y);
-
-    if (index == 0) {
-      drawBluetoothMessage("Pairing managed by\nOBD connection flow");
-    } else if (index == 1) {
-      bluetoothState = STATS_MENU;
-      drawBluetoothStats();
-    } else if (index == 2) {
-      drawBluetoothMessage("Remove not implemented");
-    } else if (index == 3) {
-      state = MAIN_MENU;
-      drawMainMenu();
-    }
-    return true;
-  }
-
-  bool handleColorTap(uint16_t x, uint16_t y) {
-    if (colorState == MAIN_COLOR_MENU) {
-      UIButtonGrid grid;
-      grid.configure({BUTTON_MARGIN, BUTTON_MARGIN, DISPLAY_WIDTH - (2 * BUTTON_MARGIN), DISPLAY_HEIGHT - (2 * BUTTON_MARGIN)}, 2, 2, BUTTON_SPACING);
-      int8_t index = grid.hitTest(x, y);
-
-      if (index == 0) {
-        colorState = NEEDLE_COLOR;
-        drawColorPicker();
-      } else if (index == 1) {
-        colorState = OUTLINE_COLOR;
-        drawColorPicker();
-      } else if (index == 2) {
-        colorState = VALUE_COLOR;
-        drawColorPicker();
-      } else if (index == 3) {
-        state = MAIN_MENU;
-        drawMainMenu();
-      }
-      return true;
-    }
-
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < 4; j++) {
-        UIRect swatch = {BUTTON_MARGIN + j * (COLOR_SWATCH_SIZE + BUTTON_SPACING), BUTTON_MARGIN + i * (COLOR_SWATCH_SIZE + BUTTON_SPACING), COLOR_SWATCH_SIZE,
-                         COLOR_SWATCH_SIZE};
-        if (swatch.contains(x, y)) {
-          uint16_t selectedColor = colorOptions[i * 4 + j];
-          if (colorState == NEEDLE_COLOR)
-            updateNeedleColor(selectedColor);
-          else if (colorState == OUTLINE_COLOR)
-            updateOutlineColor(selectedColor);
-          else
-            updateValueColor(selectedColor);
-
-          colorState = MAIN_COLOR_MENU;
-          drawColorMenu();
-          return true;
+    void drawButtons(UIButton* buttons, int count) {
+        for (int i = 0; i < count; i++) {
+            buttons[i].draw(screenSprite, 2, 1);
         }
-      }
     }
 
-    return true;
-  }
+    int hitButton(UIButton* buttons, int count, int16_t x, int16_t y) {
+        for (int i = 0; i < count; i++) {
+            if (buttons[i].hitTest(x, y)) {
+                return buttons[i].getId();
+            }
+        }
+        return -1;
+    }
 
-  void drawMainMenu() {
-    screenSprite.fillSprite(TFT_BLACK);
-    UIButtonGrid grid;
-    grid.configure({BUTTON_MARGIN, BUTTON_MARGIN, DISPLAY_WIDTH - (2 * BUTTON_MARGIN), DISPLAY_HEIGHT - (2 * BUTTON_MARGIN)}, 2, 2, BUTTON_SPACING);
-    grid.setButton(0, "G-Meter", TFT_DARKGREEN);
-    grid.setButton(1, "Bluetooth");
-    grid.setButton(2, "Colors");
-    grid.setButton(3, "Exit");
-    grid.draw(screenSprite);
-    screenSprite.pushSprite(0, 0);
-  }
+    bool handleMainMenuTouch(uint16_t x, uint16_t y) {
+        UIButton buttons[4] = {
+            buildGridButton(0, 0, 0, "G-Meter"),
+            buildGridButton(1, 0, 1, "Bluetooth"),
+            buildGridButton(2, 1, 0, "Color"),
+            buildGridButton(3, 1, 1, "Exit")
+        };
 
-  void drawAboutMenu() {
-    screenSprite.fillSprite(TFT_BLACK);
-    screenSprite.setTextFont(2);
-    screenSprite.setTextSize(2);
-    screenSprite.setTextColor(TFT_WHITE);
-    screenSprite.setCursor(60, 24);
-    screenSprite.print("G-Meter Calibration");
-    screenSprite.setTextSize(1);
-    screenSprite.setCursor(35, 55);
-    screenSprite.print("Park on flat ground before calibrating.");
+        int buttonId = hitButton(buttons, 4, x, y);
+        switch (buttonId) {
+            case 0:
+                state = ABOUT;
+                drawAboutMenu();
+                return true;
+            case 1:
+                state = BLUETOOTH;
+                bluetoothState = BLUETOOTH_MENU;
+                drawBluetoothMenu();
+                return true;
+            case 2:
+                state = COLOR;
+                colorState = MAIN_COLOR_MENU;
+                drawColorMenu();
+                return true;
+            case 3:
+                return false;
+            default:
+                return true;
+        }
+    }
 
-    UIButton({65, 90, 190, 55}, "Start Calibration", TFT_DARKGREEN).draw(screenSprite);
-    UIButton({65, 160, 190, 55}, "Back", TFT_DARKGREY).draw(screenSprite);
-    screenSprite.pushSprite(0, 0);
-  }
+    bool handleAboutTouch(uint16_t x, uint16_t y) {
+        UIButton buttons[2] = {
+            UIButton(0, "Start Calibration", {65, 90, 190, 55}, TFT_DARKGREEN),
+            UIButton(1, "Back", {65, 160, 190, 55})
+        };
 
-  void drawBluetoothMenu() {
-    screenSprite.fillSprite(TFT_BLACK);
-    UIButtonGrid grid;
-    grid.configure({BUTTON_MARGIN, BUTTON_MARGIN, DISPLAY_WIDTH - (2 * BUTTON_MARGIN), DISPLAY_HEIGHT - (2 * BUTTON_MARGIN)}, 2, 2, BUTTON_SPACING);
-    grid.setButton(0, "Pair Device");
-    grid.setButton(1, "Stats", TFT_DARKGREEN);
-    grid.setButton(2, "Remove", TFT_MAROON);
-    grid.setButton(3, "Exit");
-    grid.draw(screenSprite);
-    screenSprite.pushSprite(0, 0);
-  }
+        int buttonId = hitButton(buttons, 2, x, y);
+        if (buttonId == 0) {
+            triggerGMeterCalibration();
+            drawAboutMenu();
+            return true;
+        }
+        if (buttonId == 1) {
+            state = MAIN_MENU;
+            drawMainMenu();
+            return true;
+        }
+        return true;
+    }
 
-  void drawBluetoothStats() {
-    screenSprite.fillSprite(TFT_BLACK);
-    UITable table;
-    table.setBounds({20, 20, DISPLAY_WIDTH - 40, 150});
-    table.setHeader("Bluetooth Status", TFT_NAVY);
-    table.addRow("Screen", "Options");
-    table.addRow("Connected", "Managed globally");
-    table.addRow("Action", "Swipe right to back");
-    table.addRow("Version", SOFTWARE_VERSION);
-    table.draw(screenSprite);
-    UIButton({65, 185, 190, 45}, "Back", TFT_DARKGREY).draw(screenSprite);
-    screenSprite.pushSprite(0, 0);
-  }
+    bool handleColorTouch(uint16_t x, uint16_t y) {
+        if (colorState == MAIN_COLOR_MENU) {
+            UIButton buttons[4] = {
+                buildGridButton(0, 0, 0, "Needle Color"),
+                buildGridButton(1, 0, 1, "Outline Color"),
+                buildGridButton(2, 1, 0, "Value Color"),
+                buildGridButton(3, 1, 1, "Exit")
+            };
 
-  void drawBluetoothMessage(const char* message) {
-    screenSprite.fillSprite(TFT_BLACK);
-    screenSprite.setTextFont(2);
-    screenSprite.setTextSize(1);
-    screenSprite.setTextColor(TFT_WHITE);
-    screenSprite.setCursor(25, 70);
-    screenSprite.print(message);
-    screenSprite.setCursor(25, 100);
-    screenSprite.print("Tap anywhere to continue");
-    screenSprite.pushSprite(0, 0);
-    delay(500);
-    drawBluetoothMenu();
-  }
+            int buttonId = hitButton(buttons, 4, x, y);
+            if (buttonId == 0) {
+                colorState = NEEDLE_COLOR;
+                drawColorPicker();
+            } else if (buttonId == 1) {
+                colorState = OUTLINE_COLOR;
+                drawColorPicker();
+            } else if (buttonId == 2) {
+                colorState = VALUE_COLOR;
+                drawColorPicker();
+            } else if (buttonId == 3) {
+                state = MAIN_MENU;
+                colorState = MAIN_COLOR_MENU;
+                drawMainMenu();
+            }
+            return true;
+        }
 
-  void drawColorMenu() {
-    screenSprite.fillSprite(TFT_BLACK);
-    UIButtonGrid grid;
-    grid.configure({BUTTON_MARGIN, BUTTON_MARGIN, DISPLAY_WIDTH - (2 * BUTTON_MARGIN), DISPLAY_HEIGHT - (2 * BUTTON_MARGIN)}, 2, 2, BUTTON_SPACING);
-    grid.setButton(0, "Needle", TFT_DARKGREEN);
-    grid.setButton(1, "Outline", TFT_NAVY);
-    grid.setButton(2, "Value", TFT_PURPLE);
-    grid.setButton(3, "Exit");
-    grid.draw(screenSprite);
-    screenSprite.pushSprite(0, 0);
-  }
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 4; j++) {
+                UIRect swatch = {
+                    static_cast<int16_t>(BUTTON_MARGIN + j * (COLOR_SWATCH_SIZE + BUTTON_SPACING)),
+                    static_cast<int16_t>(BUTTON_MARGIN + i * (COLOR_SWATCH_SIZE + BUTTON_SPACING)),
+                    COLOR_SWATCH_SIZE,
+                    COLOR_SWATCH_SIZE
+                };
 
-  void drawColorPicker() {
-    screenSprite.fillSprite(TFT_BLACK);
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < 4; j++) {
-        int x = BUTTON_MARGIN + j * (COLOR_SWATCH_SIZE + BUTTON_SPACING);
-        int y = BUTTON_MARGIN + i * (COLOR_SWATCH_SIZE + BUTTON_SPACING);
-        screenSprite.fillRect(x, y, COLOR_SWATCH_SIZE, COLOR_SWATCH_SIZE, colorOptions[i * 4 + j]);
-        screenSprite.drawRect(x, y, COLOR_SWATCH_SIZE, COLOR_SWATCH_SIZE, TFT_WHITE);
-      }
+                if (swatch.contains(x, y)) {
+                    uint16_t color = colorOptions[i * 4 + j];
+                    if (colorState == NEEDLE_COLOR) {
+                        updateNeedleColor(color);
+                    } else if (colorState == OUTLINE_COLOR) {
+                        updateOutlineColor(color);
+                    } else if (colorState == VALUE_COLOR) {
+                        updateValueColor(color);
+                    }
+                    colorState = MAIN_COLOR_MENU;
+                    drawColorMenu();
+                    return true;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    bool handleBluetoothTouch(uint16_t x, uint16_t y) {
+        if (bluetoothState == BLUETOOTH_STATS) {
+            UIButton backButton(0, "Back", {10, 205, 300, 30});
+            if (backButton.hitTest(x, y)) {
+                bluetoothState = BLUETOOTH_MENU;
+                drawBluetoothMenu();
+            }
+            return true;
+        }
+
+        UIButton buttons[4] = {
+            buildGridButton(0, 0, 0, "Pair Device"),
+            buildGridButton(1, 0, 1, "Stats"),
+            buildGridButton(2, 1, 0, "Remove Device"),
+            buildGridButton(3, 1, 1, "Exit")
+        };
+
+        int buttonId = hitButton(buttons, 4, x, y);
+        if (buttonId == 1) {
+            bluetoothState = BLUETOOTH_STATS;
+            drawBluetoothStats();
+            return true;
+        }
+        if (buttonId == 3) {
+            state = MAIN_MENU;
+            bluetoothState = BLUETOOTH_MENU;
+            drawMainMenu();
+            return true;
+        }
+        return true;
+    }
+
+    void drawMainMenu() {
+        screenSprite.fillSprite(TFT_BLACK);
+        UIButton buttons[4] = {
+            buildGridButton(0, 0, 0, "G-Meter"),
+            buildGridButton(1, 0, 1, "Bluetooth"),
+            buildGridButton(2, 1, 0, "Color"),
+            buildGridButton(3, 1, 1, "Exit")
+        };
+        drawButtons(buttons, 4);
+        screenSprite.pushSprite(0, 0);
+    }
+
+    void drawAboutMenu() {
+        screenSprite.fillSprite(TFT_BLACK);
+        screenSprite.setTextFont(2);
+        screenSprite.setTextSize(2);
+        screenSprite.setTextColor(TFT_WHITE);
+
+        String title = "G-Meter Calibration";
+        int titleWidth = screenSprite.textWidth(title);
+        screenSprite.setCursor(DISPLAY_CENTER_X - (titleWidth / 2), 24);
+        screenSprite.print(title);
+
+        screenSprite.setTextSize(1);
+        String text = "Park on flat ground before calibrating.";
+        int textWidth = screenSprite.textWidth(text);
+        screenSprite.setCursor(DISPLAY_CENTER_X - (textWidth / 2), 55);
+        screenSprite.print(text);
+
+        UIButton buttons[2] = {
+            UIButton(0, "Start Calibration", {65, 90, 190, 55}, TFT_DARKGREEN),
+            UIButton(1, "Back", {65, 160, 190, 55})
+        };
+        drawButtons(buttons, 2);
+        screenSprite.pushSprite(0, 0);
+    }
+
+    void drawBluetoothMenu() {
+        bluetoothState = BLUETOOTH_MENU;
+        screenSprite.fillSprite(TFT_BLACK);
+        UIButton buttons[4] = {
+            buildGridButton(0, 0, 0, "Pair Device"),
+            buildGridButton(1, 0, 1, "Stats"),
+            buildGridButton(2, 1, 0, "Remove Device"),
+            buildGridButton(3, 1, 1, "Exit")
+        };
+        drawButtons(buttons, 4);
+        screenSprite.pushSprite(0, 0);
+    }
+
+    void drawBluetoothStats() {
+        screenSprite.fillSprite(TFT_BLACK);
+
+        UITable statsTable;
+        statsTable.configure({5, 5, 310, 190}, 4, 2);
+        statsTable.setCell(0, 0, "Metric");
+        statsTable.setCell(0, 1, "Value");
+        statsTable.setCell(1, 0, "Connected");
+        statsTable.setCell(1, 1, "Yes");
+        statsTable.setCell(2, 0, "Device");
+        statsTable.setCell(2, 1, "OBD BLE");
+        statsTable.setCell(3, 0, "Version");
+        statsTable.setCell(3, 1, SOFTWARE_VERSION);
+        statsTable.draw(screenSprite, true);
+
+        UIButton backButton(0, "Back", {10, 205, 300, 30});
+        backButton.draw(screenSprite, 2, 1);
+        screenSprite.pushSprite(0, 0);
+    }
+
+    void drawColorMenu() {
+        screenSprite.fillSprite(TFT_BLACK);
+        UIButton buttons[4] = {
+            buildGridButton(0, 0, 0, "Needle Color"),
+            buildGridButton(1, 0, 1, "Outline Color"),
+            buildGridButton(2, 1, 0, "Value Color"),
+            buildGridButton(3, 1, 1, "Exit")
+        };
+        drawButtons(buttons, 4);
+        screenSprite.pushSprite(0, 0);
+    }
+
+    void drawColorPicker() {
+        screenSprite.fillSprite(TFT_BLACK);
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 4; j++) {
+                int x = BUTTON_MARGIN + j * (COLOR_SWATCH_SIZE + BUTTON_SPACING);
+                int y = BUTTON_MARGIN + i * (COLOR_SWATCH_SIZE + BUTTON_SPACING);
+                screenSprite.fillRect(x, y, COLOR_SWATCH_SIZE, COLOR_SWATCH_SIZE, colorOptions[i * 4 + j]);
+                screenSprite.drawRect(x, y, COLOR_SWATCH_SIZE, COLOR_SWATCH_SIZE, TFT_WHITE);
+            }
+        }
+        screenSprite.pushSprite(0, 0);
+    }
+
+    void goBack() {
+        if (state == COLOR && colorState != MAIN_COLOR_MENU) {
+            colorState = MAIN_COLOR_MENU;
+            drawColorMenu();
+            return;
+        }
+
+        if (state == BLUETOOTH && bluetoothState == BLUETOOTH_STATS) {
+            bluetoothState = BLUETOOTH_MENU;
+            drawBluetoothMenu();
+            return;
+        }
+
+        state = MAIN_MENU;
+        colorState = MAIN_COLOR_MENU;
+        bluetoothState = BLUETOOTH_MENU;
+        drawMainMenu();
+    }
+
+    void triggerGMeterCalibration() {
+        for (int i = 0; i < numGauges; i++) {
+            if (gauges[i]->getType() == Gauge::G_METER) {
+                static_cast<GMeter*>(gauges[i])->beginManualCalibration();
+                break;
+            }
+        }
+    }
+
+    void updateNeedleColor(uint16_t color) {
+        for (int i = 0; i < numGauges; i++) {
+            if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) {
+                static_cast<NeedleGauge*>(gauges[i])->setNeedleColor(color);
+            }
+            if (gauges[i]->getType() == Gauge::DUAL_GAUGE) {
+                static_cast<DualGauge*>(gauges[i])->setNeedleColor(color);
+            }
+        }
     }
     screenSprite.setTextColor(TFT_WHITE);
     screenSprite.setTextSize(1);
@@ -303,24 +403,27 @@ private:
     }
   }
 
-  void updateNeedleColor(uint16_t color) {
-    for (int i = 0; i < numGauges; i++) {
-      if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) static_cast<NeedleGauge*>(gauges[i])->setNeedleColor(color);
-      if (gauges[i]->getType() == Gauge::DUAL_GAUGE) static_cast<DualGauge*>(gauges[i])->setNeedleColor(color);
+    void updateOutlineColor(uint16_t color) {
+        for (int i = 0; i < numGauges; i++) {
+            if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) {
+                static_cast<NeedleGauge*>(gauges[i])->setOutlineColor(color);
+            }
+            if (gauges[i]->getType() == Gauge::DUAL_GAUGE) {
+                static_cast<DualGauge*>(gauges[i])->setOutlineColor(color);
+            }
+        }
     }
   }
 
-  void updateOutlineColor(uint16_t color) {
-    for (int i = 0; i < numGauges; i++) {
-      if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) static_cast<NeedleGauge*>(gauges[i])->setOutlineColor(color);
-      if (gauges[i]->getType() == Gauge::DUAL_GAUGE) static_cast<DualGauge*>(gauges[i])->setOutlineColor(color);
-    }
-  }
-
-  void updateValueColor(uint16_t color) {
-    for (int i = 0; i < numGauges; i++) {
-      if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) static_cast<NeedleGauge*>(gauges[i])->setValueColor(color);
-      if (gauges[i]->getType() == Gauge::DUAL_GAUGE) static_cast<DualGauge*>(gauges[i])->setValueColor(color);
+    void updateValueColor(uint16_t color) {
+        for (int i = 0; i < numGauges; i++) {
+            if (gauges[i]->getType() == Gauge::NEEDLE_GAUGE) {
+                static_cast<NeedleGauge*>(gauges[i])->setValueColor(color);
+            }
+            if (gauges[i]->getType() == Gauge::DUAL_GAUGE) {
+                static_cast<DualGauge*>(gauges[i])->setValueColor(color);
+            }
+        }
     }
   }
 };

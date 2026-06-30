@@ -2,6 +2,7 @@
 #define TOUCH_H
 
 #include <FT6336.h>
+#include <math.h>
 
 #define TOUCH_FT6336
 #define TOUCH_FT6336_SCL 22
@@ -13,17 +14,27 @@
 #define TOUCH_MAP_Y1 0
 #define TOUCH_MAP_Y2 320
 
-struct TouchPoint {
-  uint16_t x;
-  uint16_t y;
-  bool valid;
-};
+struct TouchGesture {
+  enum Type {
+    NONE,
+    TAP,
+    LONG_PRESS,
+    SWIPE_LEFT,
+    SWIPE_RIGHT,
+    SWIPE_UP,
+    SWIPE_DOWN,
+    PINCH_IN,
+    PINCH_OUT
+  };
 
-struct TouchSample {
-  bool touched;
-  uint8_t pointCount;
-  TouchPoint points[2];
-  uint32_t timestamp;
+  Type type;
+  int16_t startX;
+  int16_t startY;
+  int16_t endX;
+  int16_t endY;
+  int16_t deltaX;
+  int16_t deltaY;
+  float pinchScale;
 };
 
 int touch_last_x = 0, touch_last_y = 0;
@@ -32,19 +43,31 @@ unsigned short int width = 0, height = 0, rotation, min_x = 0, max_x = 0, min_y 
 FT6336 ts = FT6336(TOUCH_FT6336_SDA, TOUCH_FT6336_SCL, TOUCH_FT6336_INT, TOUCH_FT6336_RST,
                    max(TOUCH_MAP_X1, TOUCH_MAP_X2), max(TOUCH_MAP_Y1, TOUCH_MAP_Y2));
 
-static inline uint16_t mapTouchX(uint16_t rawX) {
+static bool touch_active = false;
+static bool touch_has_second = false;
+static int16_t touch_start_x = 0;
+static int16_t touch_start_y = 0;
+static unsigned long touch_start_time = 0;
+static float pinch_start_distance = 0.0f;
+static TouchGesture pendingGesture = {TouchGesture::NONE, 0, 0, 0, 0, 0, 0, 1.0f};
+
+inline int16_t mapTouchX(int rawX) {
   return map(rawX, min_x, max_x, 0, width - 1);
 }
 
-static inline uint16_t mapTouchY(uint16_t rawY) {
+inline int16_t mapTouchY(int rawY) {
   return map(rawY, min_y, max_y, 0, height - 1);
+}
+
+inline float touchDistance(int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+  float dx = static_cast<float>(x2 - x1);
+  float dy = static_cast<float>(y2 - y1);
+  return sqrtf((dx * dx) + (dy * dy));
 }
 
 void touch_init(unsigned short int w, unsigned short int h, unsigned char r) {
   width = w;
   height = h;
-  rotation = r;
-
   switch (r) {
     case ROTATION_NORMAL:
     case ROTATION_INVERTED:
@@ -68,55 +91,99 @@ void touch_init(unsigned short int w, unsigned short int h, unsigned char r) {
   ts.setRotation(r);
 }
 
-TouchSample touch_read_sample(void) {
-  TouchSample sample;
-  sample.touched = false;
-  sample.pointCount = 0;
-  sample.timestamp = millis();
-  sample.points[0] = {0, 0, false};
-  sample.points[1] = {0, 0, false};
-
-  ts.read();
-
-  if (!ts.isTouched) {
-    return sample;
-  }
-
-  sample.touched = true;
-
-  // Primary point is always available when touched.
-  sample.points[0].x = mapTouchX(ts.points[0].x);
-  sample.points[0].y = mapTouchY(ts.points[0].y);
-  sample.points[0].valid = true;
-  sample.pointCount = 1;
-
-  touch_last_x = sample.points[0].x;
-  touch_last_y = sample.points[0].y;
-
-  // FT6336 supports up to two points. Treat a non-zero secondary point as valid.
-  if (ts.points[1].x != 0 || ts.points[1].y != 0) {
-    sample.points[1].x = mapTouchX(ts.points[1].x);
-    sample.points[1].y = mapTouchY(ts.points[1].y);
-    sample.points[1].valid = true;
-    sample.pointCount = 2;
-  }
-
-  return sample;
-}
-
 bool touch_touched(void) {
-  TouchSample sample = touch_read_sample();
-  return sample.touched;
+  ts.read();
+  if (ts.isTouched) {
+    touch_last_x = mapTouchX(ts.points[0].x);
+    touch_last_y = mapTouchY(ts.points[0].y);
+
+    bool secondTouch = (ts.points[1].x > 0 || ts.points[1].y > 0);
+
+    if (!touch_active) {
+      touch_active = true;
+      touch_has_second = secondTouch;
+      touch_start_x = touch_last_x;
+      touch_start_y = touch_last_y;
+      touch_start_time = millis();
+
+      if (secondTouch) {
+        int16_t x2 = mapTouchX(ts.points[1].x);
+        int16_t y2 = mapTouchY(ts.points[1].y);
+        pinch_start_distance = touchDistance(touch_last_x, touch_last_y, x2, y2);
+      } else {
+        pinch_start_distance = 0.0f;
+      }
+    }
+
+    Serial.printf("Touched at x: %.1d. y: %.1d\n", touch_last_x, touch_last_y);
+    return true;
+  }
+
+  if (touch_active) {
+    unsigned long duration = millis() - touch_start_time;
+    int16_t dx = touch_last_x - touch_start_x;
+    int16_t dy = touch_last_y - touch_start_y;
+    int16_t adx = abs(dx);
+    int16_t ady = abs(dy);
+
+    pendingGesture = {TouchGesture::NONE, touch_start_x, touch_start_y, static_cast<int16_t>(touch_last_x), static_cast<int16_t>(touch_last_y), dx, dy, 1.0f};
+
+    if (touch_has_second && pinch_start_distance > 1.0f) {
+      float currentDistance = pinch_start_distance;
+      if (ts.points[1].x > 0 || ts.points[1].y > 0) {
+        int16_t x2 = mapTouchX(ts.points[1].x);
+        int16_t y2 = mapTouchY(ts.points[1].y);
+        currentDistance = touchDistance(touch_last_x, touch_last_y, x2, y2);
+      }
+      float scale = currentDistance / pinch_start_distance;
+      pendingGesture.pinchScale = scale;
+      if (scale > 1.20f) {
+        pendingGesture.type = TouchGesture::PINCH_OUT;
+      } else if (scale < 0.85f) {
+        pendingGesture.type = TouchGesture::PINCH_IN;
+      }
+    }
+
+    if (pendingGesture.type == TouchGesture::NONE) {
+      if (adx > 50 || ady > 50) {
+        if (adx > ady) {
+          pendingGesture.type = dx > 0 ? TouchGesture::SWIPE_RIGHT : TouchGesture::SWIPE_LEFT;
+        } else {
+          pendingGesture.type = dy > 0 ? TouchGesture::SWIPE_DOWN : TouchGesture::SWIPE_UP;
+        }
+      } else if (duration > 1000) {
+        pendingGesture.type = TouchGesture::LONG_PRESS;
+      } else {
+        pendingGesture.type = TouchGesture::TAP;
+      }
+    }
+
+    touch_active = false;
+    touch_has_second = false;
+    pinch_start_distance = 0.0f;
+  }
+
+  return false;
 }
 
 bool touch_getXY(uint16_t* x, uint16_t* y) {
-  TouchSample sample = touch_read_sample();
-  if (sample.touched && sample.points[0].valid) {
-    *x = sample.points[0].x;
-    *y = sample.points[0].y;
+  if (touch_touched()) {
+    *x = touch_last_x;
+    *y = touch_last_y;
     return true;
   }
   return false;
+}
+
+bool touch_getGesture(TouchGesture* gesture) {
+  if (pendingGesture.type == TouchGesture::NONE || gesture == nullptr) {
+    return false;
+  }
+
+  *gesture = pendingGesture;
+  pendingGesture.type = TouchGesture::NONE;
+  pendingGesture.pinchScale = 1.0f;
+  return true;
 }
 
 bool touch_has_signal(void) {
@@ -124,7 +191,7 @@ bool touch_has_signal(void) {
 }
 
 bool touch_released(void) {
-  return true;
+  return !touch_active;
 }
 
 #endif

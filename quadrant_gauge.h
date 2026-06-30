@@ -13,7 +13,9 @@ public:
         selector(display),
         selectorOpen(false),
         selectedQuadrant(0),
-        pageStart(0) {
+        pageStart(0),
+        lastSelectorButtonPressMs(0),
+        lastSelectorButtonId(-1) {
         selectedCommands[0] = 8;   // RPM
         selectedCommands[1] = 9;   // Speed
         selectedCommands[2] = 1;   // Coolant temp
@@ -29,7 +31,7 @@ public:
             Serial.println("Failed to create QuadrantGauge screen sprite");
         }
 
-        if (!selector.createSprite(DISPLAY_WIDTH - 30, DISPLAY_HEIGHT - 30)) {
+        if (!selector.createSprite(DISPLAY_WIDTH, DISPLAY_HEIGHT)) {
             Serial.println("Failed to create QuadrantGauge selector sprite");
         }
 
@@ -37,15 +39,17 @@ public:
     }
 
     void render(double) override {
-        drawQuadrants();
         if (selectorOpen) {
             drawSelector();
+            return;
         }
+        drawQuadrants();
     }
 
     void reset() override {
         selectorOpen = false;
         pageStart = 0;
+        clearSelectorButtonDebounce();
         drawQuadrants();
     }
 
@@ -73,6 +77,7 @@ public:
     void openSelectorFromTouch(uint16_t x, uint16_t y) {
         selectedQuadrant = getQuadrantFromTouch(x, y);
         pageStart = 0;
+        clearSelectorButtonDebounce();
         selectorOpen = true;
         drawSelector();
     }
@@ -82,29 +87,32 @@ public:
             return false;
         }
 
-        int localX = x - 15;
-        int localY = y - 15;
-        if (localX < 0 || localY < 0 || localX >= (DISPLAY_WIDTH - 30) || localY >= (DISPLAY_HEIGHT - 30)) {
-            selectorOpen = false;
-            return true;
-        }
+        int localX = x;
+        int localY = y;
 
-        const int rowHeight = 24;
-        const int top = 32;
-        const int visibleRows = 7;
+        const int rowHeight = 36;
+        const int top = 8;
+        const int bottomButtonY = DISPLAY_HEIGHT - 44;
+        const int visibleRows = (bottomButtonY - top) / rowHeight;
 
-        int prevY = DISPLAY_HEIGHT - 65;
-        int nextY = DISPLAY_HEIGHT - 65;
-        if (localY >= prevY && localY < prevY + 22 && localX >= 10 && localX < 90) {
+        if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= 10 && localX < 145) {
+            if (!shouldProcessSelectorButton(0)) {
+                return true;
+            }
             pageStart = max(0, pageStart - visibleRows);
             return true;
         }
 
-        if (localY >= nextY && localY < nextY + 22 && localX >= (DISPLAY_WIDTH - 30 - 90) && localX < (DISPLAY_WIDTH - 30 - 10)) {
+        if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= (DISPLAY_WIDTH - 145) && localX < (DISPLAY_WIDTH - 10)) {
+            if (!shouldProcessSelectorButton(1)) {
+                return true;
+            }
             int maxStart = max(0, commands->getCommandCount() - visibleRows);
             pageStart = min(maxStart, pageStart + visibleRows);
             return true;
         }
+
+        clearSelectorButtonDebounce();
 
         for (int i = 0; i < visibleRows; i++) {
             int rowY = top + i * rowHeight;
@@ -137,6 +145,26 @@ private:
     bool selectorOpen;
     int selectedQuadrant;
     int pageStart;
+    uint32_t lastSelectorButtonPressMs;
+    int lastSelectorButtonId;
+
+    static constexpr uint32_t SELECTOR_BUTTON_DEBOUNCE_MS = 250;
+
+    void clearSelectorButtonDebounce() {
+        lastSelectorButtonId = -1;
+        lastSelectorButtonPressMs = 0;
+    }
+
+    bool shouldProcessSelectorButton(int buttonId) {
+        uint32_t now = millis();
+        if (buttonId == lastSelectorButtonId && (now - lastSelectorButtonPressMs) < SELECTOR_BUTTON_DEBOUNCE_MS) {
+            return false;
+        }
+
+        lastSelectorButtonId = buttonId;
+        lastSelectorButtonPressMs = now;
+        return true;
+    }
 
     String fitTextToWidth(const String& text, int maxWidth) {
         if (screen.textWidth(text) <= maxWidth) {
@@ -199,14 +227,6 @@ private:
             screen.unloadFont();
         }
 
-        screen.setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
-        screen.setTextFont(1);
-        String diag = commands->getLastQueryDiagnostic();
-        if (diag.length() > 52) {
-            diag = diag.substring(0, 52) + "...";
-        }
-        screen.drawString(diag, 2, DISPLAY_HEIGHT - 10, 1);
-
         screen.pushSprite(0, 0);
     }
 
@@ -216,12 +236,10 @@ private:
         selector.setTextColor(TFT_WHITE, TFT_BLACK);
         selector.setTextFont(1);
 
-        String title = "Select value for quadrant " + String(selectedQuadrant + 1);
-        selector.drawString(title, 8, 8, 2);
-
-        const int rowHeight = 24;
-        const int top = 32;
-        const int visibleRows = 7;
+        const int rowHeight = 36;
+        const int top = 8;
+        const int bottomButtonY = selector.height() - 44;
+        const int visibleRows = (bottomButtonY - top) / rowHeight;
 
         for (int i = 0; i < visibleRows; i++) {
             int commandIndex = pageStart + i;
@@ -232,26 +250,29 @@ private:
             int rowY = top + i * rowHeight;
             bool active = (selectedCommands[selectedQuadrant] == commandIndex);
             uint16_t bg = active ? TFT_DARKGREEN : TFT_DARKGREY;
-            selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 2, bg);
+            selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 3, bg);
+            selector.drawRect(6, rowY, selector.width() - 12, rowHeight - 3, TFT_WHITE);
 
             String originalLabel = commands->getCommandLabel(commandIndex);
             String rowLabel = originalLabel;
-            while (rowLabel.length() > 0 && selector.textWidth(rowLabel, 2) > selector.width() - 24) {
+            while (rowLabel.length() > 0 && selector.textWidth(rowLabel, 2) > selector.width() - 28) {
                 rowLabel.remove(rowLabel.length() - 1);
             }
             if (rowLabel != originalLabel) {
                 rowLabel += "...";
             }
-            selector.drawString(rowLabel, 12, rowY + 6, 2);
+            selector.drawString(rowLabel, 12, rowY + 9, 2);
         }
 
-        selector.fillRect(10, selector.height() - 35, 80, 22, TFT_BLUE);
-        selector.drawString("Prev", 28, selector.height() - 30, 2);
+        selector.fillRect(10, bottomButtonY, 135, 34, TFT_DARKGREY);
+        selector.drawRect(10, bottomButtonY, 135, 34, TFT_WHITE);
+        selector.drawString("Prev", 54, bottomButtonY + 10, 2);
 
-        selector.fillRect(selector.width() - 90, selector.height() - 35, 80, 22, TFT_BLUE);
-        selector.drawString("Next", selector.width() - 72, selector.height() - 30, 2);
+        selector.fillRect(selector.width() - 145, bottomButtonY, 135, 34, TFT_DARKGREY);
+        selector.drawRect(selector.width() - 145, bottomButtonY, 135, 34, TFT_WHITE);
+        selector.drawString("Next", selector.width() - 100, bottomButtonY + 10, 2);
 
-        selector.pushSprite(15, 15);
+        selector.pushSprite(0, 0);
     }
 };
 
