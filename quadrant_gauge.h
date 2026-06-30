@@ -179,9 +179,10 @@ private:
         return fitted + "...";
     }
 
-    void drawFittedText(const String& text, int x, int y, int maxWidth) {
+    void drawCenteredFittedText(const String& text, int centerX, int y, int maxWidth) {
         String fitted = fitTextToWidth(text, maxWidth);
-        screen.drawString(fitted, x, y);
+        int fittedWidth = screen.textWidth(fitted);
+        screen.drawString(fitted, centerX - (fittedWidth / 2), y);
     }
 
     int getQuadrantFromTouch(uint16_t x, uint16_t y) {
@@ -209,21 +210,22 @@ private:
             String units = commands->getCommandUnits(selectedCommands[i]);
 
             screen.setTextColor(TFT_WHITE, DISPLAY_BG_COLOR);
-            const int textLeft = originX + 8;
             const int textMaxWidth = boxW - 16;
+            const int textCenterX = originX + (boxW / 2);
 
-            screen.setFreeFont(FONT_BOLD_12);
-            drawFittedText(label, textLeft, originY + 8, textMaxWidth);
+            screen.setFreeFont(FONT_BOLD_8);
+            drawCenteredFittedText(label, textCenterX, originY + 8, textMaxWidth);
             screen.unloadFont();
 
-            screen.setFreeFont(FONT_BOLD_18);
+            screen.setFreeFont(FONT_BOLD_24);
             String valueText = String(values[i], 1);
-            int valueWidth = screen.textWidth(valueText);
-            screen.drawString(valueText, originX + (boxW - valueWidth) / 2, originY + (boxH / 2) - 10);
+            screen.setTextDatum(MC_DATUM);
+            screen.drawString(valueText, textCenterX, originY + (boxH / 2));
+            screen.setTextDatum(TL_DATUM);
             screen.unloadFont();
 
-            screen.setFreeFont(FONT_NORMAL_12);
-            drawFittedText(units, textLeft, originY + boxH - 22, textMaxWidth);
+            screen.setFreeFont(FONT_NORMAL_8);
+            drawCenteredFittedText(units, textCenterX, originY + boxH - 24, textMaxWidth);
             screen.unloadFont();
         }
 
@@ -233,12 +235,16 @@ private:
     void drawSelector() {
         selector.fillSprite(TFT_BLACK);
         selector.drawRect(0, 0, selector.width(), selector.height(), TFT_WHITE);
-        selector.setTextColor(TFT_WHITE, TFT_BLACK);
-        selector.setTextFont(1);
+        selector.setTextColor(TFT_WHITE);
+        selector.setFreeFont(FONT_BOLD_8);
 
         const int rowHeight = 36;
         const int top = 8;
+        const int bottomButtonMargin = 10;
         const int bottomButtonY = selector.height() - 44;
+        const int bottomButtonX = 10;
+        const int bottomButtonWidth = 135;
+        const int bottomButtonHeight = 34;
         const int visibleRows = (bottomButtonY - top) / rowHeight;
 
         for (int i = 0; i < visibleRows; i++) {
@@ -249,29 +255,38 @@ private:
 
             int rowY = top + i * rowHeight;
             bool active = (selectedCommands[selectedQuadrant] == commandIndex);
-            uint16_t bg = active ? TFT_DARKGREEN : TFT_DARKGREY;
+            uint16_t bg = active ? TFT_DARKGREEN : TFT_BLACK;
             selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 3, bg);
             selector.drawRect(6, rowY, selector.width() - 12, rowHeight - 3, TFT_WHITE);
+            selector.drawRect(7, rowY + 1, selector.width() - 14, rowHeight - 5, TFT_WHITE);
 
             String originalLabel = commands->getCommandLabel(commandIndex);
             String rowLabel = originalLabel;
-            while (rowLabel.length() > 0 && selector.textWidth(rowLabel, 2) > selector.width() - 28) {
-                rowLabel.remove(rowLabel.length() - 1);
-            }
-            if (rowLabel != originalLabel) {
+            const int rowTextMaxWidth = selector.width() - 28;
+            if (selector.textWidth(originalLabel) > rowTextMaxWidth) {
+                while (rowLabel.length() > 0 && selector.textWidth(rowLabel + "...") > rowTextMaxWidth) {
+                    rowLabel.remove(rowLabel.length() - 1);
+                }
                 rowLabel += "...";
             }
-            selector.drawString(rowLabel, 12, rowY + 9, 2);
+            selector.setTextDatum(ML_DATUM);
+            selector.drawString(rowLabel, 12, rowY + ((rowHeight - 3) / 2));
         }
 
-        selector.fillRect(10, bottomButtonY, 135, 34, TFT_DARKGREY);
-        selector.drawRect(10, bottomButtonY, 135, 34, TFT_WHITE);
-        selector.drawString("Prev", 54, bottomButtonY + 10, 2);
+        selector.fillRect(bottomButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_BLACK);
+        selector.drawRect(bottomButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_WHITE);
+        selector.drawRect(bottomButtonX + 1, bottomButtonY + 1, bottomButtonWidth - 2, bottomButtonHeight - 2, TFT_WHITE);
+        selector.setTextDatum(MC_DATUM);
+        selector.drawString("Prev", bottomButtonX + (bottomButtonWidth / 2), bottomButtonY + (bottomButtonHeight / 2));
 
-        selector.fillRect(selector.width() - 145, bottomButtonY, 135, 34, TFT_DARKGREY);
-        selector.drawRect(selector.width() - 145, bottomButtonY, 135, 34, TFT_WHITE);
-        selector.drawString("Next", selector.width() - 100, bottomButtonY + 10, 2);
+        const int nextButtonX = selector.width() - bottomButtonWidth - bottomButtonMargin;
+        selector.fillRect(nextButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_BLACK);
+        selector.drawRect(nextButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_WHITE);
+        selector.drawRect(nextButtonX + 1, bottomButtonY + 1, bottomButtonWidth - 2, bottomButtonHeight - 2, TFT_WHITE);
+        selector.drawString("Next", nextButtonX + (bottomButtonWidth / 2), bottomButtonY + (bottomButtonHeight / 2));
 
+        selector.setTextDatum(TL_DATUM);
+        selector.unloadFont();
         selector.pushSprite(0, 0);
     }
 };

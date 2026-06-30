@@ -28,8 +28,8 @@ enum FormulaType {
 };
 
 const pidCommandDefinition Commands::commandConfig[] = {
-    {"Calculated engine load", "%", "0104", 0.0, 100.0, 1, FORMULA_ENGINE_LOAD, "0"},
-    {"Engine coolant temp", "F", "0105", -40.0, 419.0, 1, FORMULA_TEMP_F, "0"},
+    {"Engine load", "%", "0104", 0.0, 100.0, 1, FORMULA_ENGINE_LOAD, "0"},
+    {"Coolant temp", "F", "0105", -40.0, 419.0, 1, FORMULA_TEMP_F, "0"},
     {"Short fuel trim B1", "%", "0106", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
     {"Long fuel trim B1", "%", "0107", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
     {"Short fuel trim B2", "%", "0108", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
@@ -64,8 +64,8 @@ const pidCommandDefinition Commands::commandConfig[] = {
     {"Engine ref torque", "lb-ft", "0163", 0.0, 48338.0, 2, FORMULA_REFERENCE_TORQUE_LBFT, "0"},
     {"Instant MPG", "mpg", "0110", 0.0, 100.0, 2, FORMULA_INSTANT_MPG, "0"},
     {"Average MPG", "mpg", "0110", 0.0, 100.0, 2, FORMULA_AVERAGE_MPG, "0"},
-    {"Trans temperature", "F", "0105", -40.0, 500.0, 1, FORMULA_TEMP_F, "TCM"},
-    {"Trans temperature (1)", "F", "01B4", -40.0, 500.0, 1, FORMULA_TEMP_F, "0"}
+    {"Trans temp", "F", "0105", -40.0, 500.0, 1, FORMULA_TEMP_F, "TCM"},
+    {"Trans temp (1)", "F", "01B4", -40.0, 500.0, 1, FORMULA_TEMP_F, "0"}
 };
 
 const int Commands::commandCount = sizeof(Commands::commandConfig) / sizeof(Commands::commandConfig[0]);

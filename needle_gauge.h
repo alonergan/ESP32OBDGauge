@@ -147,6 +147,10 @@ public:
     }
 
     void render(double) override {
+        if (selectorOpen) {
+            return;
+        }
+
         const unsigned long SWEEP_UP_DURATION = 1500; // 1 second up
         const unsigned long SWEEP_DOWN_DURATION = 1500; // 1 second down
         unsigned long currentTime = millis();
@@ -274,6 +278,27 @@ private:
         oldAngle = GAUGE_START_ANGLE;
     }
 
+    void drawArcCaps(TFT_eSprite& target) {
+        // Connect the centers of the inner and outer outline strokes at the
+        // exact endpoints used by TFT_eSPI's clockwise-from-6-o'clock arcs.
+        const int centerX = GAUGE_RADIUS;
+        const int centerY = GAUGE_RADIUS + GAUGE_MARGIN_TOP;
+        const float outerOutlineRadius = GAUGE_RADIUS - (GAUGE_LINE_WIDTH / 2.0f);
+        const float innerOutlineRadius = GAUGE_RADIUS - GAUGE_ARC_WIDTH - (1.5f * GAUGE_LINE_WIDTH);
+        const uint16_t capAngles[2] = {GAUGE_START_ANGLE, GAUGE_END_ANGLE};
+
+        for (int i = 0; i < 2; i++) {
+            const float angleRad = capAngles[i] * PI / 180.0f;
+            const float radialX = -sinf(angleRad);
+            const float radialY = cosf(angleRad);
+            const float innerX = centerX + (innerOutlineRadius * radialX);
+            const float innerY = centerY + (innerOutlineRadius * radialY);
+            const float outerX = centerX + (outerOutlineRadius * radialX);
+            const float outerY = centerY + (outerOutlineRadius * radialY);
+            target.drawWideLine(innerX, innerY, outerX, outerY, GAUGE_LINE_WIDTH, outlineColor);
+        }
+    }
+
     void createOutline() {
         if (!gaugeOutline.createSprite(GAUGE_WIDTH, GAUGE_HEIGHT)) {
             Serial.println("Failed to create gauge outline");
@@ -282,25 +307,7 @@ private:
         gaugeOutline.fillSprite(GAUGE_BG_COLOR);
         gaugeOutline.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS, GAUGE_RADIUS - GAUGE_LINE_WIDTH, GAUGE_START_ANGLE, GAUGE_END_ANGLE, outlineColor, GAUGE_BG_COLOR, true);
         gaugeOutline.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH, GAUGE_RADIUS - (GAUGE_LINE_WIDTH * 2) - GAUGE_ARC_WIDTH, GAUGE_START_ANGLE, GAUGE_END_ANGLE, outlineColor, GAUGE_BG_COLOR, true);
-
-        int centerX = GAUGE_RADIUS;
-        int centerY = GAUGE_RADIUS + GAUGE_MARGIN_TOP;
-
-        // Draw arc caps at start angle
-        double startAngleRad = (GAUGE_START_ANGLE + 89) * PI / 180.0;
-        int outerX = centerX + GAUGE_RADIUS * cos(startAngleRad);
-        int outerY = centerY + GAUGE_RADIUS * sin(startAngleRad);
-        int innerX = centerX + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * cos(startAngleRad);
-        int innerY = centerY + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * sin(startAngleRad);
-        gaugeOutline.drawWideLine(innerX, innerY, outerX, outerY, GAUGE_LINE_WIDTH, outlineColor);
-
-        // Draw arc caps at end angle
-        double endAngleRad = (GAUGE_END_ANGLE + 91) * PI / 180.0;
-        int outerX_end = centerX + GAUGE_RADIUS * cos(endAngleRad);
-        int outerY_end = centerY + GAUGE_RADIUS * sin(endAngleRad);
-        int innerX_end = centerX + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * cos(endAngleRad);
-        int innerY_end = centerY + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * sin(endAngleRad);
-        gaugeOutline.drawWideLine(innerX_end, innerY_end, outerX_end, outerY_end, GAUGE_LINE_WIDTH, outlineColor);
+        drawArcCaps(gaugeOutline);
 
         gaugeOutline.setFreeFont(FONT_BOLD_14);
         gaugeOutline.setTextColor(outlineColor);
@@ -395,6 +402,9 @@ private:
             gaugeNeedle.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - 2, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH + 2, GAUGE_START_ANGLE, newAngle, needleColor, GAUGE_BG_COLOR, false);
         }
         
+        // Restore the caps after the opaque eraser/needle arc crosses them.
+        drawArcCaps(gaugeNeedle);
+
         // Push arc then ticks over top
         gaugeNeedle.pushSprite(DISPLAY_CENTER_X - GAUGE_RADIUS, 0, TFT_TRANSPARENT);
         //gaugeTicks.pushSprite(DISPLAY_CENTER_X - GAUGE_RADIUS, 0, TFT_TRANSPARENT);

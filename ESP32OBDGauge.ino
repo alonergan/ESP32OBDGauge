@@ -11,9 +11,8 @@
 #include "config.h"
 #include "options_screen.h"
 #include "screen_manager.h"
-#include "ui_touch.h"
 
-bool TESTMODE = false;
+bool TESTMODE = true;
 
 /*
     Variables for settings stored in flash memory
@@ -39,7 +38,6 @@ unsigned long lastTouchTime = 0;
 bool obdConnected = false;
 OptionsScreen* optionsScreen = nullptr;
 bool inOptionsScreen = false;
-TouchGestureEngine touchGestures;
 
 void setup() {
     Serial.begin(115200);
@@ -246,190 +244,6 @@ void dataFetchingTask(void* parameter) {
     }
 }
 
-void loop() {
-    static bool wasTouched = false;
-    static bool waitingForReleaseAfterOptions = false;
-    static bool waitingForReleaseAfterQuadrantSelector = false;
-    static bool touchHandledForCurrentPress = false;
-    static unsigned long touchStartTime = 0;
-    const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
-    const unsigned long DEBOUNCE_MS = 200;
-
-    bool currentlyTouched = touch_touched();
-
-    if (currentlyTouched) {
-        if (millis() - lastTouchTime > DEBOUNCE_MS) {
-            lastTouchTime = millis();
-            if (!wasTouched) {
-                wasTouched = true;
-                touchStartTime = millis();
-                touchHandledForCurrentPress = false;
-            }
-
-            if (!inOptionsScreen) {
-                bool handledSelectorTouch = false;
-                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-                Gauge* current = screenManager.getCurrentGauge();
-                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
-                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
-                    if (qg->isSelectorVisible()) {
-                        if (!touchHandledForCurrentPress) {
-                            qg->handleTouch(touch_last_x, touch_last_y);
-                            touchHandledForCurrentPress = true;
-                            waitingForReleaseAfterQuadrantSelector = true;
-                        }
-                        handledSelectorTouch = true;
-                    }
-                } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
-                    NeedleGauge* ng = static_cast<NeedleGauge*>(current);
-                    if (ng->isTypeSelectorVisible()) {
-                        if (!touchHandledForCurrentPress) {
-                            ng->handleTypeSelectorTouch(touch_last_x, touch_last_y);
-                            touchHandledForCurrentPress = true;
-                            waitingForReleaseAfterQuadrantSelector = true;
-                        }
-                        handledSelectorTouch = true;
-                    }
-                }
-                xSemaphoreGive(gaugeMutex);
-
-                if (!handledSelectorTouch && millis() - touchStartTime > LONG_PRESS_THRESHOLD) {
-                    xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-                    current = screenManager.getCurrentGauge();
-                    if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
-                        QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
-                        qg->openSelectorFromTouch(touch_last_x, touch_last_y);
-                        waitingForReleaseAfterQuadrantSelector = true;
-                    } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
-                        NeedleGauge* ng = static_cast<NeedleGauge*>(current);
-                        ng->openTypeSelector();
-                        waitingForReleaseAfterQuadrantSelector = true;
-                    } else {
-                        showOptions();
-                        waitingForReleaseAfterOptions = true;
-                    }
-                    xSemaphoreGive(gaugeMutex);
-                    wasTouched = true;
-                    touchHandledForCurrentPress = true;
-                }
-            }
-        }
-    } else if (wasTouched) {
-        wasTouched = false;
-
-        if (waitingForReleaseAfterOptions) {
-            // Now we can allow interaction again
-            waitingForReleaseAfterOptions = false;
-        }
-
-    if (inOptionsScreen) {
-        if (gesture.type != TouchGestureEngine::NONE) {
-            if (!optionsScreen->handleGesture(gesture.type)) {
-                exitOptions();
-                justExitedOptions = true;
-            }
-        }
-    }
-
-    TouchGesture gesture;
-    if (touch_getGesture(&gesture)) {
-        if (inOptionsScreen) {
-            if (!optionsScreen->handleTouchGesture(gesture)) {
-                exitOptions();
-            }
-            touchHandledForCurrentPress = false;
-        } else {
-            if (gesture.type == TouchGesture::TAP) {
-                bool handledByQuadrantSelector = false;
-                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-                Gauge* current = screenManager.getCurrentGauge();
-                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
-                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
-                    if (qg->isSelectorVisible()) {
-                        qg->handleTouch(gesture.endX, gesture.endY);
-                        handledByQuadrantSelector = true;
-                    }
-                } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
-                    NeedleGauge* ng = static_cast<NeedleGauge*>(current);
-                    if (ng->isTypeSelectorVisible()) {
-                        ng->handleTypeSelectorTouch(gesture.endX, gesture.endY);
-                        handledByQuadrantSelector = true;
-                    }
-                }
-                xSemaphoreGive(gaugeMutex);
-
-                if (handledByQuadrantSelector || touchHandledForCurrentPress) {
-                    touchHandledForCurrentPress = false;
-                    return;
-                }
-            } else if (gesture.type == TouchGesture::SWIPE_LEFT) {
-                switchToNextGauge();
-            } else if (gesture.type == TouchGesture::SWIPE_RIGHT) {
-                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-                int previousGauge = screenManager.getCurrentGaugeIndex() - 1;
-                if (previousGauge < 0) {
-                    previousGauge = GAUGE_COUNT - 1;
-                }
-                screenManager.setCurrentGauge(previousGauge);
-                currentGauge = screenManager.getCurrentGaugeIndex();
-                Gauge* current = screenManager.getCurrentGauge();
-                if (current != nullptr) {
-                    current->initialize();
-                }
-                updateCurrentGaugeSettings(currentGauge);
-                xSemaphoreGive(gaugeMutex);
-            } else if (gesture.type == TouchGesture::SWIPE_DOWN) {
-                resetGauge();
-            } else if (gesture.type == TouchGesture::PINCH_IN || gesture.type == TouchGesture::PINCH_OUT) {
-                showOptions();
-            }
-
-            touchHandledForCurrentPress = false;
-        }
-    }
-
-    if (!sample.touched) {
-        if (waitingForReleaseAfterOptions) {
-            waitingForReleaseAfterOptions = false;
-        }
-
-        if (waitingForReleaseAfterQuadrantSelector) {
-            waitingForReleaseAfterQuadrantSelector = false;
-            return;
-        }
-
-        if (justExitedOptions) {
-            justExitedOptions = false;
-            return;
-        }
-    }
-
-    // Render
-    if (!inOptionsScreen) {
-        xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-        Gauge* current = screenManager.getCurrentGauge();
-        if (current != nullptr) {
-            current->render(0.0);
-        }
-
-        GMeter* gm = static_cast<GMeter*>(gauges[2]);
-        float savedRotation[3][3];
-        Vec3 savedBias;
-        if (gm->consumeCalibration(savedRotation, savedBias)) {
-            updateGMeterCalibrationSettings(savedRotation, savedBias);
-            for (int i = 0; i < 3; i++) {
-                for (int j = 0; j < 3; j++) {
-                    mpuCalibrationMatrix[i][j] = savedRotation[i][j];
-                }
-            }
-            mpuCalibrationBias = savedBias;
-            gmeterCalibrationStored = true;
-        }
-
-        xSemaphoreGive(gaugeMutex);
-    }
-}
-
 void switchToNextGauge() {
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
     screenManager.moveNext(obdConnected, FALLBACK_GAUGE_INDEX);
@@ -505,4 +319,175 @@ void exitOptions() {
     }
 
     xSemaphoreGive(gaugeMutex);
+}
+
+void loop() {
+    static bool wasTouched = false;
+    static bool waitingForReleaseAfterOptions = false;
+    static bool waitingForReleaseAfterQuadrantSelector = false;
+    static bool touchHandledForCurrentPress = false;
+    static unsigned long touchStartTime = 0;
+    const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
+    const unsigned long DEBOUNCE_MS = 200;
+
+    bool currentlyTouched = touch_touched();
+
+    if (currentlyTouched) {
+        if (millis() - lastTouchTime > DEBOUNCE_MS) {
+            lastTouchTime = millis();
+            if (!wasTouched) {
+                wasTouched = true;
+                touchStartTime = millis();
+                touchHandledForCurrentPress = false;
+            }
+
+            if (!inOptionsScreen) {
+                bool handledSelectorTouch = false;
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                    if (qg->isSelectorVisible()) {
+                        if (!touchHandledForCurrentPress) {
+                            qg->handleTouch(touch_last_x, touch_last_y);
+                            touchHandledForCurrentPress = true;
+                            waitingForReleaseAfterQuadrantSelector = true;
+                        }
+                        handledSelectorTouch = true;
+                    }
+                } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
+                    NeedleGauge* ng = static_cast<NeedleGauge*>(current);
+                    if (ng->isTypeSelectorVisible()) {
+                        if (!touchHandledForCurrentPress) {
+                            ng->handleTypeSelectorTouch(touch_last_x, touch_last_y);
+                            touchHandledForCurrentPress = true;
+                            waitingForReleaseAfterQuadrantSelector = true;
+                        }
+                        handledSelectorTouch = true;
+                    }
+                }
+                xSemaphoreGive(gaugeMutex);
+
+                if (!handledSelectorTouch && millis() - touchStartTime > LONG_PRESS_THRESHOLD) {
+                    xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                    current = screenManager.getCurrentGauge();
+                    if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                        QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                        qg->openSelectorFromTouch(touch_last_x, touch_last_y);
+                        waitingForReleaseAfterQuadrantSelector = true;
+                    } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
+                        NeedleGauge* ng = static_cast<NeedleGauge*>(current);
+                        ng->openTypeSelector();
+                        waitingForReleaseAfterQuadrantSelector = true;
+                    } else {
+                        showOptions();
+                        waitingForReleaseAfterOptions = true;
+                    }
+                    xSemaphoreGive(gaugeMutex);
+                    wasTouched = true;
+                    touchHandledForCurrentPress = true;
+                }
+            }
+        }
+    } else if (wasTouched) {
+        wasTouched = false;
+
+        if (waitingForReleaseAfterOptions) {
+            // Now we can allow interaction again
+            waitingForReleaseAfterOptions = false;
+        }
+    }
+
+    TouchGesture gesture;
+    if (touch_getGesture(&gesture)) {
+        if (inOptionsScreen) {
+            if (!optionsScreen->handleTouchGesture(gesture)) {
+                exitOptions();
+            }
+            touchHandledForCurrentPress = false;
+        } else {
+            if (gesture.type == TouchGesture::TAP) {
+                bool handledByQuadrantSelector = false;
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                    if (qg->isSelectorVisible()) {
+                        qg->handleTouch(gesture.endX, gesture.endY);
+                        handledByQuadrantSelector = true;
+                    }
+                } else if (current != nullptr && current->getType() == Gauge::NEEDLE_GAUGE) {
+                    NeedleGauge* ng = static_cast<NeedleGauge*>(current);
+                    if (ng->isTypeSelectorVisible()) {
+                        ng->handleTypeSelectorTouch(gesture.endX, gesture.endY);
+                        handledByQuadrantSelector = true;
+                    }
+                }
+                xSemaphoreGive(gaugeMutex);
+
+                if (handledByQuadrantSelector || touchHandledForCurrentPress) {
+                    touchHandledForCurrentPress = false;
+                    return;
+                }
+            } else if (gesture.type == TouchGesture::SWIPE_LEFT) {
+                switchToNextGauge();
+            } else if (gesture.type == TouchGesture::SWIPE_RIGHT) {
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                int previousGauge = screenManager.getCurrentGaugeIndex() - 1;
+                if (previousGauge < 0) {
+                    previousGauge = GAUGE_COUNT - 1;
+                }
+                screenManager.setCurrentGauge(previousGauge);
+                currentGauge = screenManager.getCurrentGaugeIndex();
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr) {
+                    current->initialize();
+                }
+                updateCurrentGaugeSettings(currentGauge);
+                xSemaphoreGive(gaugeMutex);
+            } else if (gesture.type == TouchGesture::SWIPE_DOWN) {
+                resetGauge();
+            } else if (gesture.type == TouchGesture::PINCH_IN || gesture.type == TouchGesture::PINCH_OUT) {
+                showOptions();
+            }
+
+            touchHandledForCurrentPress = false;
+        }
+    }
+
+    if (!currentlyTouched) {
+        if (waitingForReleaseAfterOptions) {
+            waitingForReleaseAfterOptions = false;
+        }
+
+        if (waitingForReleaseAfterQuadrantSelector) {
+            waitingForReleaseAfterQuadrantSelector = false;
+            return;
+        }
+    }
+
+    // Render
+    if (!inOptionsScreen) {
+        xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+        Gauge* current = screenManager.getCurrentGauge();
+        if (current != nullptr) {
+            current->render(0.0);
+        }
+
+        GMeter* gm = static_cast<GMeter*>(gauges[2]);
+        float savedRotation[3][3];
+        Vec3 savedBias;
+        if (gm->consumeCalibration(savedRotation, savedBias)) {
+            updateGMeterCalibrationSettings(savedRotation, savedBias);
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    mpuCalibrationMatrix[i][j] = savedRotation[i][j];
+                }
+            }
+            mpuCalibrationBias = savedBias;
+            gmeterCalibrationStored = true;
+        }
+
+        xSemaphoreGive(gaugeMutex);
+    }
 }
