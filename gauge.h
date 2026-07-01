@@ -12,7 +12,8 @@ public:
         NEEDLE_GAUGE,
         DUAL_GAUGE,
         G_METER,
-        ACCELERATION_METER
+        ACCELERATION_METER,
+        QUADRANT_GAUGE
     };
 
     Gauge(TFT_eSPI* display) : display(display) {}
@@ -21,7 +22,8 @@ public:
     virtual void displayStats(float fps, double frameAvg, double queryAvg) = 0;
     virtual GaugeType getType() const = 0;
     virtual void reset() = 0;
-    virtual uint32_t getCurrentNeedleColor() = 0;
+    virtual void setThemeColors(uint16_t label, uint16_t value, uint16_t outline) = 0;
+    virtual uint32_t getCurrentLabelColor() = 0;
     virtual uint32_t getCurrentOutlineColor() = 0;
     virtual uint32_t getCurrentValueColor() = 0;
 

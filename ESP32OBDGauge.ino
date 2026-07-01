@@ -7,8 +7,10 @@
 #include "dual_gauge.h"
 #include "g_meter.h"
 #include "acceleration_meter.h"
-#include "options_screen.h"
+#include "quadrant_gauge.h"
 #include "config.h"
+#include "options_screen.h"
+#include "screen_manager.h"
 
 bool TESTMODE = true;
 
@@ -16,14 +18,28 @@ bool TESTMODE = true;
     Variables for settings stored in flash memory
 */
 uint32_t outlineColor = GAUGE_FG_COLOR;
-uint32_t needleColor = NEEDLE_COLOR_PRIMARY;
-uint32_t valueColor = VALUE_TEXT_COLOR;
+uint32_t labelColor = GAUGE_FG_COLOR;
+uint32_t valueColor = NEEDLE_COLOR_PRIMARY;
 int currentGauge = 0;
-float mpuCalibrationMatrix[3][3]; // 3x3 rotation matrix obtained when statically calibrating the MPU-6050
+int singleCommandIndex = 4;
+int dualLeftCommandIndex = 16;
+int dualRightCommandIndex = 18;
+int quadrantCommandIndices[4] = {4, 5, 1, 17};
+uint16_t favoriteColors[8] = {TFT_RED, TFT_ORANGE, TFT_YELLOW, TFT_GREEN, TFT_CYAN, TFT_BLUE, TFT_PURPLE, TFT_WHITE};
+float mpuCalibrationMatrix[3][3]; // Persisted G-meter rotation matrix
+Vec3 mpuCalibrationBias = {0.0f, 0.0f, 0.0f};
+bool gmeterCalibrationStored = false;
 
 Preferences preferences;
 TFT_eSPI display = TFT_eSPI();
-Gauge* gauges[7];
+const int GAUGE_COUNT = 5;
+const int FALLBACK_GAUGE_INDEX = 2;
+uint32_t gaugeOutlineColors[GAUGE_COUNT] = {GAUGE_FG_COLOR, GAUGE_FG_COLOR, GAUGE_FG_COLOR, GAUGE_FG_COLOR, GAUGE_FG_COLOR};
+uint32_t gaugeLabelColors[GAUGE_COUNT] = {GAUGE_FG_COLOR, GAUGE_FG_COLOR, GAUGE_FG_COLOR, GAUGE_FG_COLOR, GAUGE_FG_COLOR};
+uint32_t gaugeValueColors[GAUGE_COUNT] = {NEEDLE_COLOR_PRIMARY, NEEDLE_COLOR_PRIMARY, NEEDLE_COLOR_PRIMARY, NEEDLE_COLOR_PRIMARY, NEEDLE_COLOR_PRIMARY};
+Gauge* gauges[GAUGE_COUNT];
+ScreenManager screenManager;
+Commands commands;
 TaskHandle_t dataTaskHandle;
 SemaphoreHandle_t gaugeMutex;
 unsigned long lastTouchTime = 0;
@@ -59,18 +75,22 @@ void setup() {
     }
 
     gaugeMutex = xSemaphoreCreateMutex();
-    gauges[0] = new NeedleGauge(&display, 0, outlineColor, needleColor, valueColor); // RPM    (Actual)
-    gauges[1] = new NeedleGauge(&display, 1, outlineColor, needleColor, valueColor); // Boost  (Approximate)
-    gauges[2] = new NeedleGauge(&display, 2, outlineColor, needleColor, valueColor); // Torque (Approximate)
-    gauges[3] = new NeedleGauge(&display, 3, outlineColor, needleColor, valueColor); // Horsepower (Approximate)
-    gauges[4] = new DualGauge(&display, 0, outlineColor, needleColor, valueColor);
-    gauges[5] = new GMeter(&display);
-    gauges[6] = new AccelerationMeter(&display);
+    gauges[0] = new NeedleGauge(&display, &commands, singleCommandIndex, gaugeOutlineColors[0], gaugeLabelColors[0], gaugeValueColors[0]);
+    gauges[1] = new DualGauge(&display, &commands, dualLeftCommandIndex, dualRightCommandIndex, gaugeOutlineColors[1], gaugeLabelColors[1], gaugeValueColors[1]);
+    gauges[2] = new GMeter(&display, gaugeOutlineColors[2], gaugeLabelColors[2], gaugeValueColors[2]);
+    gauges[3] = new AccelerationMeter(&display, gaugeOutlineColors[3], gaugeLabelColors[3], gaugeValueColors[3]);
+    gauges[4] = new QuadrantGauge(&display, &commands, quadrantCommandIndices, gaugeOutlineColors[4], gaugeLabelColors[4], gaugeValueColors[4]);
+
+    if (gmeterCalibrationStored) {
+        static_cast<GMeter*>(gauges[2])->setStoredCalibration(mpuCalibrationMatrix, mpuCalibrationBias);
+    }
 
     if (!obdConnected) {
-        currentGauge = 5;
+        currentGauge = FALLBACK_GAUGE_INDEX;
     }
-    gauges[currentGauge]->initialize();
+
+    screenManager.initialize(gauges, GAUGE_COUNT, currentGauge);
+    screenManager.getCurrentGauge()->initialize();
 
     xTaskCreatePinnedToCore(dataFetchingTask, "DataFetching", 10000, NULL, 1, &dataTaskHandle, 0);
 }
@@ -81,9 +101,40 @@ void readSettings() {
 
     // Try to get stored settings
     outlineColor = preferences.getUInt("outlineColor", GAUGE_FG_COLOR);
-    needleColor = preferences.getUInt("needleColor", NEEDLE_COLOR_PRIMARY);
-    valueColor = preferences.getUInt("valueColor", VALUE_TEXT_COLOR);
+    labelColor = preferences.getUInt("labelColor", GAUGE_FG_COLOR);
+    valueColor = preferences.getUInt("valueColor", preferences.getUInt("needleColor", NEEDLE_COLOR_PRIMARY));
+    for (int i = 0; i < GAUGE_COUNT; i++) {
+        String labelKey = "lbl" + String(i);
+        String valueKey = "val" + String(i);
+        String outlineKey = "out" + String(i);
+        gaugeLabelColors[i] = preferences.getUInt(labelKey.c_str(), labelColor);
+        gaugeValueColors[i] = preferences.getUInt(valueKey.c_str(), valueColor);
+        gaugeOutlineColors[i] = preferences.getUInt(outlineKey.c_str(), outlineColor);
+    }
     currentGauge = preferences.getInt("currentGauge", 0);
+    int commandCount = commands.getCommandCount();
+    singleCommandIndex = constrain(preferences.getInt("singleCmd", 4), 0, commandCount - 1);
+    dualLeftCommandIndex = constrain(preferences.getInt("dualLeft", 16), 0, commandCount - 1);
+    dualRightCommandIndex = constrain(preferences.getInt("dualRight", 18), 0, commandCount - 1);
+    for (int i = 0; i < 4; i++) {
+        String key = "quad" + String(i);
+        quadrantCommandIndices[i] = constrain(preferences.getInt(key.c_str(), quadrantCommandIndices[i]), 0, commandCount - 1);
+    }
+    for (int i = 0; i < 8; i++) {
+        String key = "fav" + String(i);
+        favoriteColors[i] = static_cast<uint16_t>(preferences.getUInt(key.c_str(), favoriteColors[i]));
+    }
+
+    gmeterCalibrationStored = preferences.getBool("gmCalSaved", false);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            String key = "gmr" + String(i) + String(j);
+            mpuCalibrationMatrix[i][j] = preferences.getFloat(key.c_str(), (i == j) ? 1.0f : 0.0f);
+        }
+    }
+    mpuCalibrationBias.x = preferences.getFloat("gmbx", 0.0f);
+    mpuCalibrationBias.y = preferences.getFloat("gmby", 0.0f);
+    mpuCalibrationBias.z = preferences.getFloat("gmbz", 0.0f);
 
     // Close preferences
     preferences.end();
@@ -102,22 +153,63 @@ void updateCurrentGaugeSettings(int newCurrentGauge) {
     return;
 }
 
-void updateCurrentGaugeColorSettings(uint32_t currNeedleColor, uint32_t currOutlineColor, uint32_t currValueColor) {
+void updateGaugeConfigurationSettings() {
     // Initialize preferences
     preferences.begin("OBDGAUGE", false);
 
-    // Set new settings 
-    preferences.putUInt("needleColor", currNeedleColor);
-    preferences.putUInt("outlineColor", currOutlineColor);
-    preferences.putUInt("valueColor", currValueColor);
+    // Preserve the original keys as migration defaults, then store each
+    // screen's colors independently.
+    preferences.putUInt("labelColor", gauges[0]->getCurrentLabelColor());
+    preferences.putUInt("outlineColor", gauges[0]->getCurrentOutlineColor());
+    preferences.putUInt("valueColor", gauges[0]->getCurrentValueColor());
+    for (int i = 0; i < GAUGE_COUNT; i++) {
+        String labelKey = "lbl" + String(i);
+        String valueKey = "val" + String(i);
+        String outlineKey = "out" + String(i);
+        preferences.putUInt(labelKey.c_str(), gauges[i]->getCurrentLabelColor());
+        preferences.putUInt(valueKey.c_str(), gauges[i]->getCurrentValueColor());
+        preferences.putUInt(outlineKey.c_str(), gauges[i]->getCurrentOutlineColor());
+    }
+
+    NeedleGauge* single = static_cast<NeedleGauge*>(gauges[0]);
+    DualGauge* dual = static_cast<DualGauge*>(gauges[1]);
+    QuadrantGauge* quadrant = static_cast<QuadrantGauge*>(gauges[4]);
+    preferences.putInt("singleCmd", single->getCommandIndex());
+    preferences.putInt("dualLeft", dual->getLeftCommandIndex());
+    preferences.putInt("dualRight", dual->getRightCommandIndex());
+    for (int i = 0; i < 4; i++) {
+        String key = "quad" + String(i);
+        preferences.putInt(key.c_str(), quadrant->getCommandIndexForQuadrant(i));
+    }
+    for (int i = 0; i < 8; i++) {
+        String key = "fav" + String(i);
+        preferences.putUInt(key.c_str(), favoriteColors[i]);
+    }
 
     // Close preferences
     preferences.end();
     return;
 }
 
+
+void updateGMeterCalibrationSettings(const float rotation[3][3], const Vec3& bias) {
+    preferences.begin("OBDGAUGE", false);
+
+    preferences.putBool("gmCalSaved", true);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            String key = "gmr" + String(i) + String(j);
+            preferences.putFloat(key.c_str(), rotation[i][j]);
+        }
+    }
+    preferences.putFloat("gmbx", bias.x);
+    preferences.putFloat("gmby", bias.y);
+    preferences.putFloat("gmbz", bias.z);
+
+    preferences.end();
+}
+
 void dataFetchingTask(void* parameter) {
-    Commands commands;
     Adafruit_MPU6050 mpu;
     mpu.begin();
     mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
@@ -128,15 +220,15 @@ void dataFetchingTask(void* parameter) {
     while (true) {
         int gaugeIndex;
         xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-        gaugeIndex = currentGauge;
+        gaugeIndex = screenManager.getCurrentGaugeIndex();
         xSemaphoreGive(gaugeMutex);
 
         Gauge* gauge = gauges[gaugeIndex];
         switch (gauge->getType()) {
             case Gauge::NEEDLE_GAUGE:
                 if (obdConnected) {
-                    double reading = commands.getReading(gaugeIndex);
                     NeedleGauge* ng = static_cast<NeedleGauge*>(gauge);
+                    double reading = commands.getValueByCommandIndex(ng->getCommandIndex());
                     ng->setReading(reading);
                     vTaskDelay(100 / portTICK_PERIOD_MS); // 10Hz
                 } else {
@@ -149,9 +241,10 @@ void dataFetchingTask(void* parameter) {
                 break;
             case Gauge::DUAL_GAUGE:
                 if (obdConnected) {
-                    struct dualGaugeReading x = commands.getDualReading(); // Gets torque and horsepower
                     DualGauge* dg = static_cast<DualGauge*>(gauge);
-                    dg->setReadings(x.readings[0], x.readings[1]);
+                    double left = commands.getValueByCommandIndex(dg->getLeftCommandIndex());
+                    double right = commands.getValueByCommandIndex(dg->getRightCommandIndex());
+                    dg->setReadings(left, right);
                     vTaskDelay(100 / portTICK_PERIOD_MS); // 10Hz
                 } else {
                     if (millis() - lastReconnectAttempt > RECONNECT_INTERVAL) {
@@ -172,11 +265,12 @@ void dataFetchingTask(void* parameter) {
                 break;
             case Gauge::ACCELERATION_METER:
                 if (obdConnected) {
-                    double speed = commands.getReading(3); // Speed for AccelerationMeter
+                    double speed = commands.getReading(5); // Speed for AccelerationMeter
                     AccelerationMeter* am = static_cast<AccelerationMeter*>(gauge);
-                    am->setSpeed(speed);
+                    am->setSpeed(speed, commands.wasLastQuerySuccessful());
                     vTaskDelay(100 / portTICK_PERIOD_MS); // 10Hz
                 } else {
+                    static_cast<AccelerationMeter*>(gauge)->setSpeed(0.0, false);
                     if (millis() - lastReconnectAttempt > RECONNECT_INTERVAL) {
                         obdConnected = reconnectToOBD();
                         lastReconnectAttempt = millis();
@@ -184,114 +278,80 @@ void dataFetchingTask(void* parameter) {
                     vTaskDelay(100 / portTICK_PERIOD_MS);
                 }
                 break;
-        }
-    }
-}
-
-void loop() {
-    static bool wasTouched = false;
-    static bool ignoreHeldTouchInOptions = false;
-    static bool waitingForReleaseAfterOptions = false;
-    static bool justExitedOptions = false;
-    static unsigned long touchStartTime = 0;
-    const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
-    const unsigned long DEBOUNCE_MS = 200;
-
-    if (touch_touched()) {
-        if (millis() - lastTouchTime > DEBOUNCE_MS) {
-            lastTouchTime = millis();
-            if (!wasTouched) {
-                wasTouched = true;
-                touchStartTime = millis();
-
-                if (inOptionsScreen && !waitingForReleaseAfterOptions) {
-                    ignoreHeldTouchInOptions = false;
-                }
-            }
-
-            if (inOptionsScreen) {
-                if (!ignoreHeldTouchInOptions) {
-                    if (touch_last_x >= 0 && touch_last_y >= 0) {
-                        if (!optionsScreen->handleTouch(touch_last_x, touch_last_y)) {
-                            exitOptions();
-                            justExitedOptions = true;
-                            Serial.println("Just exited options screen");
-                        }
+            case Gauge::QUADRANT_GAUGE:
+                if (obdConnected) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(gauge);
+                    for (int i = 0; i < 4; i++) {
+                        int commandIndex = qg->getCommandIndexForQuadrant(i);
+                        qg->setQuadrantReading(i, commands.getValueByCommandIndex(commandIndex));
                     }
+                    vTaskDelay(150 / portTICK_PERIOD_MS);
+                } else {
+                    if (millis() - lastReconnectAttempt > RECONNECT_INTERVAL) {
+                        obdConnected = reconnectToOBD();
+                        lastReconnectAttempt = millis();
+                    }
+                    vTaskDelay(150 / portTICK_PERIOD_MS);
                 }
-            } else if (millis() - touchStartTime > LONG_PRESS_THRESHOLD) {
-                showOptions();
-                ignoreHeldTouchInOptions = true;
-                waitingForReleaseAfterOptions = true;
-                wasTouched = true;  // Don't reset — finger still down
-            }
-        }
-    } else if (wasTouched && !touch_touched()) {
-        wasTouched = false;
-
-        if (waitingForReleaseAfterOptions) {
-            // Now we can allow interaction again
-            waitingForReleaseAfterOptions = false;
-            ignoreHeldTouchInOptions = false;
-        }
-
-        if (justExitedOptions) {
-            justExitedOptions = false;
-            return;
-        }
-
-        if (!inOptionsScreen && millis() - touchStartTime < LONG_PRESS_THRESHOLD) {
-            if ((touch_last_x >= 0 && touch_last_x < 30) &&
-                (touch_last_y > 210 && touch_last_y <= 240)) {
-                resetGauge();
-            } else {
-                switchToNextGauge();
-            }
+                break;
         }
     }
-
-    // Render
-    if (!inOptionsScreen) {
-        xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-        gauges[currentGauge]->render(0.0);
-        xSemaphoreGive(gaugeMutex);
-        //if (obdConnected) {
-            //display.drawRect(0, 0, 10, 10, TFT_GREEN);
-        //}
-        //else {
-            //display.drawRect(0, 0, 10, 10, TFT_RED);
-        //}
-    }
-
-    // Limit to ~200 FPS
-    //delay(250);
 }
 
 void switchToNextGauge() {
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-    if (obdConnected) {
-        currentGauge = (currentGauge + 1) % 7;
-    } else {
-        currentGauge = 4; // Stay on GMeter if OBD not connected
+    screenManager.moveNext(obdConnected, FALLBACK_GAUGE_INDEX);
+    currentGauge = screenManager.getCurrentGaugeIndex();
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current != nullptr) {
+        current->initialize();
     }
-    gauges[currentGauge]->initialize();
 
-    // Update preferences
     updateCurrentGaugeSettings(currentGauge);
+    xSemaphoreGive(gaugeMutex);
+}
 
+void switchToPreviousGauge() {
+    xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+    if (obdConnected) {
+        int prev = screenManager.getCurrentGaugeIndex() - 1;
+        if (prev < 0) {
+            prev = GAUGE_COUNT - 1;
+        }
+        screenManager.setCurrentGauge(prev);
+    } else {
+        screenManager.setCurrentGauge(FALLBACK_GAUGE_INDEX);
+    }
+
+    currentGauge = screenManager.getCurrentGaugeIndex();
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current != nullptr) {
+        current->initialize();
+    }
+
+    updateCurrentGaugeSettings(currentGauge);
     xSemaphoreGive(gaugeMutex);
 }
 
 void resetGauge() {
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-    gauges[currentGauge]->reset();
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current != nullptr) {
+        current->reset();
+    }
     xSemaphoreGive(gaugeMutex);
 }
 
 void showOptions() {
     inOptionsScreen = true;
-    optionsScreen = new OptionsScreen(&display, gauges, 5);
+    optionsScreen = new OptionsScreen(&display, gauges, GAUGE_COUNT, &commands, favoriteColors,
+                                      &obdConnected, screenManager.getCurrentGaugeIndex());
     optionsScreen->initialize();
+}
+
+void showGaugeTypeOptions(Gauge::GaugeType gaugeType, int16_t touchX) {
+    showOptions();
+    optionsScreen->openGaugeTypeShortcut(gaugeType, touchX);
 }
 
 void exitOptions() {
@@ -301,17 +361,197 @@ void exitOptions() {
     }
     inOptionsScreen = false;
     xSemaphoreTake(gaugeMutex, portMAX_DELAY);
-    gauges[currentGauge]->initialize();
-
-    Gauge::GaugeType gaugeType = gauges[currentGauge]->getType();
-
-    if (gaugeType != Gauge::ACCELERATION_METER && gaugeType != Gauge::G_METER) {
-        // Store new preferences when exiting options screen only for needle and dual gauges
-        uint32_t currNeedleColor = gauges[currentGauge]->getCurrentNeedleColor();
-        uint32_t currOutlineColor = gauges[currentGauge]->getCurrentOutlineColor();
-        uint32_t currValueColor = gauges[currentGauge]->getCurrentValueColor();
-        updateCurrentGaugeColorSettings(currNeedleColor, currOutlineColor, currValueColor);
+    Gauge* current = screenManager.getCurrentGauge();
+    if (current == nullptr) {
+        xSemaphoreGive(gaugeMutex);
+        return;
     }
+    current->initialize();
+
+    updateGaugeConfigurationSettings();
 
     xSemaphoreGive(gaugeMutex);
+}
+
+void loop() {
+    static bool wasTouched = false;
+    static bool waitingForReleaseAfterOptions = false;
+    static bool waitingForReleaseAfterQuadrantSelector = false;
+    static bool touchHandledForCurrentPress = false;
+    static unsigned long touchStartTime = 0;
+    static unsigned long lastGaugeTapTime = 0;
+    static int lastTapGaugeIndex = -1;
+    static int lastTapRegion = -1;
+    const unsigned long LONG_PRESS_THRESHOLD = 1000; // 1 second
+    const unsigned long DOUBLE_TAP_THRESHOLD = 350;
+    const unsigned long DEBOUNCE_MS = 200;
+
+    bool currentlyTouched = touch_touched();
+
+    if (currentlyTouched) {
+        if (millis() - lastTouchTime > DEBOUNCE_MS) {
+            lastTouchTime = millis();
+            if (!wasTouched) {
+                wasTouched = true;
+                touchStartTime = millis();
+                touchHandledForCurrentPress = false;
+            }
+
+            if (!inOptionsScreen) {
+                bool handledSelectorTouch = false;
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                    if (qg->isSelectorVisible()) {
+                        if (!touchHandledForCurrentPress) {
+                            qg->handleTouch(touch_last_x, touch_last_y);
+                            if (!qg->isSelectorVisible()) updateGaugeConfigurationSettings();
+                            touchHandledForCurrentPress = true;
+                            waitingForReleaseAfterQuadrantSelector = true;
+                        }
+                        handledSelectorTouch = true;
+                    }
+                }
+                xSemaphoreGive(gaugeMutex);
+
+                if (!handledSelectorTouch && millis() - touchStartTime > LONG_PRESS_THRESHOLD) {
+                    showOptions();
+                    waitingForReleaseAfterOptions = true;
+                    lastGaugeTapTime = 0;
+                    lastTapGaugeIndex = -1;
+                    lastTapRegion = -1;
+                    wasTouched = true;
+                    touchHandledForCurrentPress = true;
+                }
+            }
+        }
+    } else if (wasTouched) {
+        wasTouched = false;
+
+        if (waitingForReleaseAfterOptions) {
+            // Now we can allow interaction again
+            waitingForReleaseAfterOptions = false;
+        }
+    }
+
+    TouchGesture gesture;
+    if (touch_getGesture(&gesture)) {
+        if (inOptionsScreen) {
+            if (!optionsScreen->handleTouchGesture(gesture)) {
+                exitOptions();
+            }
+            touchHandledForCurrentPress = false;
+        } else {
+            if (gesture.type == TouchGesture::TAP) {
+                bool handledTap = false;
+                bool openGaugeTypeOptions = false;
+                Gauge::GaugeType shortcutType = Gauge::NEEDLE_GAUGE;
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr && current->getType() == Gauge::QUADRANT_GAUGE) {
+                    QuadrantGauge* qg = static_cast<QuadrantGauge*>(current);
+                    if (qg->isSelectorVisible()) {
+                        qg->handleTouch(gesture.endX, gesture.endY);
+                        if (!qg->isSelectorVisible()) updateGaugeConfigurationSettings();
+                        handledTap = true;
+                    }
+                }
+
+                if (current != nullptr && !handledTap) {
+                    int gaugeIndex = screenManager.getCurrentGaugeIndex();
+                    int tapRegion = 0;
+                    if (current->getType() == Gauge::QUADRANT_GAUGE) {
+                        tapRegion = (gesture.endX >= DISPLAY_WIDTH / 2 ? 1 : 0) +
+                                    (gesture.endY >= DISPLAY_HEIGHT / 2 ? 2 : 0);
+                    } else if (current->getType() == Gauge::DUAL_GAUGE) {
+                        tapRegion = gesture.endX < DISPLAY_CENTER_X ? 0 : 1;
+                    }
+
+                    unsigned long now = millis();
+                    if (gaugeIndex == lastTapGaugeIndex && tapRegion == lastTapRegion &&
+                        now - lastGaugeTapTime <= DOUBLE_TAP_THRESHOLD) {
+                        if (current->getType() == Gauge::QUADRANT_GAUGE) {
+                            static_cast<QuadrantGauge*>(current)->openSelectorFromTouch(gesture.endX, gesture.endY);
+                        } else {
+                            shortcutType = current->getType();
+                            openGaugeTypeOptions = true;
+                        }
+                        lastGaugeTapTime = 0;
+                        lastTapGaugeIndex = -1;
+                        lastTapRegion = -1;
+                    } else {
+                        lastGaugeTapTime = now;
+                        lastTapGaugeIndex = gaugeIndex;
+                        lastTapRegion = tapRegion;
+                    }
+                    handledTap = true;
+                }
+                xSemaphoreGive(gaugeMutex);
+
+                if (openGaugeTypeOptions) showGaugeTypeOptions(shortcutType, gesture.endX);
+
+                if (handledTap || touchHandledForCurrentPress) {
+                    touchHandledForCurrentPress = false;
+                    return;
+                }
+            } else if (gesture.type == TouchGesture::SWIPE_LEFT) {
+                switchToNextGauge();
+            } else if (gesture.type == TouchGesture::SWIPE_RIGHT) {
+                xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+                int previousGauge = screenManager.getCurrentGaugeIndex() - 1;
+                if (previousGauge < 0) {
+                    previousGauge = GAUGE_COUNT - 1;
+                }
+                screenManager.setCurrentGauge(previousGauge);
+                currentGauge = screenManager.getCurrentGaugeIndex();
+                Gauge* current = screenManager.getCurrentGauge();
+                if (current != nullptr) {
+                    current->initialize();
+                }
+                updateCurrentGaugeSettings(currentGauge);
+                xSemaphoreGive(gaugeMutex);
+            } else if (gesture.type == TouchGesture::SWIPE_DOWN) {
+                resetGauge();
+            }
+
+            touchHandledForCurrentPress = false;
+        }
+    }
+
+    if (!currentlyTouched) {
+        if (waitingForReleaseAfterOptions) {
+            waitingForReleaseAfterOptions = false;
+        }
+
+        if (waitingForReleaseAfterQuadrantSelector) {
+            waitingForReleaseAfterQuadrantSelector = false;
+            return;
+        }
+    }
+
+    // Render
+    if (!inOptionsScreen) {
+        xSemaphoreTake(gaugeMutex, portMAX_DELAY);
+        Gauge* current = screenManager.getCurrentGauge();
+        if (current != nullptr) {
+            current->render(0.0);
+        }
+
+        GMeter* gm = static_cast<GMeter*>(gauges[2]);
+        float savedRotation[3][3];
+        Vec3 savedBias;
+        if (gm->consumeCalibration(savedRotation, savedBias)) {
+            updateGMeterCalibrationSettings(savedRotation, savedBias);
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    mpuCalibrationMatrix[i][j] = savedRotation[i][j];
+                }
+            }
+            mpuCalibrationBias = savedBias;
+            gmeterCalibrationStored = true;
+        }
+
+        xSemaphoreGive(gaugeMutex);
+    }
 }

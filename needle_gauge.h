@@ -2,29 +2,34 @@
 #define NEEDLE_GAUGE_H
 
 #include "gauge.h"
+#include "commands.h"
+#include "ui_library.h"
 
 class NeedleGauge : public Gauge {
 public:
-    NeedleGauge(TFT_eSPI* display, int gaugeType, uint32_t outlineColor, uint32_t needleColor, uint32_t valueColor) : 
+    NeedleGauge(TFT_eSPI* display, Commands* commands, int commandIndex,
+                uint32_t outlineColor, uint32_t labelColor, uint32_t valueColor) :
         Gauge(display),
+        commands(commands),
         gaugeOutline(display),
         gaugeNeedle(display),
         gaugeValue(display),
         gaugeEraser(display),
         gaugeTicks(display),
         stats(display),
-        valueLabel(gaugeTypes[gaugeType][0]),
-        valueUnits(gaugeTypes[gaugeType][1]),
-        minValue(gaugeTypes[gaugeType][2].toDouble()),
-        maxValue(gaugeTypes[gaugeType][3].toDouble()),
-        valueType(gaugeTypes[gaugeType][4]),
+        valueLabel(commands->getCommandLabel(commandIndex)),
+        valueUnits(commands->getCommandUnits(commandIndex)),
+        minValue(commands->getCommandMin(commandIndex)),
+        maxValue(commands->getCommandMax(commandIndex)),
+        commandIndex(commandIndex),
+        valueDecimals(commands->getCommandDecimals(commandIndex)),
         targetValue(0.0),
         currentAngle(GAUGE_START_ANGLE),
         oldAngle(GAUGE_START_ANGLE),
         sweepState(SWEEP_UP),
         sweepStartTime(0),
         sweepValue(0.0),
-        needleColor(needleColor),
+        labelColor(labelColor),
         outlineColor(outlineColor),
         valueColor(valueColor) {}
 
@@ -57,38 +62,34 @@ public:
         targetValue = constrain(reading, minValue, maxValue);
     }
 
-    void setNeedleColor(uint16_t color) {
-        needleColor = color;
-        // Recreate needle sprite with new color
-        gaugeNeedle.deleteSprite();
-        createNeedle();
-        plotNeedle(currentAngle);
+    void setCommandIndex(int newCommandIndex) {
+        if (newCommandIndex < 0 || newCommandIndex >= commands->getCommandCount() || newCommandIndex == commandIndex) {
+            return;
+        }
+
+        commandIndex = newCommandIndex;
+        valueLabel = commands->getCommandLabel(commandIndex);
+        valueUnits = commands->getCommandUnits(commandIndex);
+        minValue = commands->getCommandMin(commandIndex);
+        maxValue = commands->getCommandMax(commandIndex);
+        valueDecimals = commands->getCommandDecimals(commandIndex);
+        targetValue = minValue;
+        resetSweep();
     }
 
-    void setOutlineColor(uint16_t color) {
-        outlineColor = color;
-        gaugeOutline.deleteSprite();
-        createOutline();
+    int getCommandIndex() const {
+        return commandIndex;
     }
 
-    void setValueColor(uint16_t color) {
-        valueColor = color;
-        gaugeValue.deleteSprite();
-        createValue();
-        plotValue(0.0);
+    void setThemeColors(uint16_t label, uint16_t value, uint16_t outline) override {
+        labelColor = label;
+        valueColor = value;
+        outlineColor = outline;
     }
 
-    uint32_t getCurrentNeedleColor() {
-        return needleColor;
-    }
-
-    uint32_t getCurrentOutlineColor() {
-        return outlineColor;
-    }
-
-    uint32_t getCurrentValueColor() {
-        return valueColor;
-    }
+    uint32_t getCurrentLabelColor() override { return labelColor; }
+    uint32_t getCurrentOutlineColor() override { return outlineColor; }
+    uint32_t getCurrentValueColor() override { return valueColor; }
 
     void render(double) override {
         const unsigned long SWEEP_UP_DURATION = 1500; // 1 second up
@@ -161,11 +162,14 @@ public:
     }
 
 private:
+    Commands* commands;
     TFT_eSprite gaugeOutline, gaugeNeedle, gaugeValue, gaugeEraser, gaugeTicks, stats;
     double targetValue, currentAngle, oldAngle;
     double minValue, maxValue;
-    String valueLabel, valueUnits, valueType;
-    uint16_t needleColor, outlineColor, valueColor;
+    String valueLabel, valueUnits;
+    uint16_t labelColor, outlineColor, valueColor;
+    int commandIndex;
+    uint8_t valueDecimals;
 
     // Sweep state
     enum SweepState { SWEEP_UP, SWEEP_DOWN, SWEEP_COMPLETE };
@@ -173,7 +177,34 @@ private:
     unsigned long sweepStartTime;
     double sweepValue;
 
-    static String gaugeTypes[4][5];
+    void resetSweep() {
+        sweepState = SWEEP_UP;
+        sweepStartTime = millis();
+        sweepValue = minValue;
+        currentAngle = GAUGE_START_ANGLE;
+        oldAngle = GAUGE_START_ANGLE;
+    }
+
+    void drawArcCaps(TFT_eSprite& target) {
+        // Connect the centers of the inner and outer outline strokes at the
+        // exact endpoints used by TFT_eSPI's clockwise-from-6-o'clock arcs.
+        const int centerX = GAUGE_RADIUS;
+        const int centerY = GAUGE_RADIUS + GAUGE_MARGIN_TOP;
+        const float outerOutlineRadius = GAUGE_RADIUS - (GAUGE_LINE_WIDTH / 2.0f);
+        const float innerOutlineRadius = GAUGE_RADIUS - GAUGE_ARC_WIDTH - (1.5f * GAUGE_LINE_WIDTH);
+        const uint16_t capAngles[2] = {GAUGE_START_ANGLE, GAUGE_END_ANGLE};
+
+        for (int i = 0; i < 2; i++) {
+            const float angleRad = capAngles[i] * PI / 180.0f;
+            const float radialX = -sinf(angleRad);
+            const float radialY = cosf(angleRad);
+            const float innerX = centerX + (innerOutlineRadius * radialX);
+            const float innerY = centerY + (innerOutlineRadius * radialY);
+            const float outerX = centerX + (outerOutlineRadius * radialX);
+            const float outerY = centerY + (outerOutlineRadius * radialY);
+            target.drawWideLine(innerX, innerY, outerX, outerY, GAUGE_LINE_WIDTH, outlineColor);
+        }
+    }
 
     void createOutline() {
         if (!gaugeOutline.createSprite(GAUGE_WIDTH, GAUGE_HEIGHT)) {
@@ -183,31 +214,24 @@ private:
         gaugeOutline.fillSprite(GAUGE_BG_COLOR);
         gaugeOutline.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS, GAUGE_RADIUS - GAUGE_LINE_WIDTH, GAUGE_START_ANGLE, GAUGE_END_ANGLE, outlineColor, GAUGE_BG_COLOR, true);
         gaugeOutline.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH, GAUGE_RADIUS - (GAUGE_LINE_WIDTH * 2) - GAUGE_ARC_WIDTH, GAUGE_START_ANGLE, GAUGE_END_ANGLE, outlineColor, GAUGE_BG_COLOR, true);
+        drawArcCaps(gaugeOutline);
 
-        int centerX = GAUGE_RADIUS;
-        int centerY = GAUGE_RADIUS + GAUGE_MARGIN_TOP;
-
-        // Draw arc caps at start angle
-        double startAngleRad = (GAUGE_START_ANGLE + 89) * PI / 180.0;
-        int outerX = centerX + GAUGE_RADIUS * cos(startAngleRad);
-        int outerY = centerY + GAUGE_RADIUS * sin(startAngleRad);
-        int innerX = centerX + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * cos(startAngleRad);
-        int innerY = centerY + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * sin(startAngleRad);
-        gaugeOutline.drawWideLine(innerX, innerY, outerX, outerY, GAUGE_LINE_WIDTH, outlineColor);
-
-        // Draw arc caps at end angle
-        double endAngleRad = (GAUGE_END_ANGLE + 91) * PI / 180.0;
-        int outerX_end = centerX + GAUGE_RADIUS * cos(endAngleRad);
-        int outerY_end = centerY + GAUGE_RADIUS * sin(endAngleRad);
-        int innerX_end = centerX + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * cos(endAngleRad);
-        int innerY_end = centerY + (GAUGE_RADIUS - GAUGE_ARC_WIDTH) * sin(endAngleRad);
-        gaugeOutline.drawWideLine(innerX_end, innerY_end, outerX_end, outerY_end, GAUGE_LINE_WIDTH, outlineColor);
-
+        const int labelMaxWidth = ((GAUGE_RADIUS - (GAUGE_LINE_WIDTH * 2) - GAUGE_ARC_WIDTH) * 2) - 10;
         gaugeOutline.setFreeFont(FONT_BOLD_14);
-        gaugeOutline.setTextColor(outlineColor);
-        int textWidth = gaugeOutline.textWidth(valueLabel);
+        if (gaugeOutline.textWidth(valueLabel) > labelMaxWidth) gaugeOutline.setFreeFont(FONT_BOLD_12);
+        if (gaugeOutline.textWidth(valueLabel) > labelMaxWidth) gaugeOutline.setFreeFont(FONT_BOLD_10);
+        if (gaugeOutline.textWidth(valueLabel) > labelMaxWidth) gaugeOutline.setFreeFont(FONT_BOLD_8);
+        gaugeOutline.setTextColor(labelColor);
+        String fittedLabel = valueLabel;
+        if (gaugeOutline.textWidth(fittedLabel) > labelMaxWidth) {
+            while (fittedLabel.length() > 0 && gaugeOutline.textWidth(fittedLabel + "...") > labelMaxWidth) {
+                fittedLabel.remove(fittedLabel.length() - 1);
+            }
+            fittedLabel += "...";
+        }
+        int textWidth = gaugeOutline.textWidth(fittedLabel);
         int x = (GAUGE_WIDTH - textWidth) / 2;
-        gaugeOutline.drawString(valueLabel, x, GAUGE_RADIUS + GAUGE_MARGIN_TOP - 20);
+        gaugeOutline.drawString(fittedLabel, x, GAUGE_RADIUS + GAUGE_MARGIN_TOP - 20);
         gaugeOutline.unloadFont();
 
         gaugeOutline.setFreeFont(FONT_NORMAL_8);
@@ -293,9 +317,12 @@ private:
         }
         else {
             // Draw Arc
-            gaugeNeedle.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - 2, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH + 2, GAUGE_START_ANGLE, newAngle, needleColor, GAUGE_BG_COLOR, false);
+            gaugeNeedle.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - 2, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH + 2, GAUGE_START_ANGLE, newAngle, valueColor, GAUGE_BG_COLOR, false);
         }
         
+        // Restore the caps after the opaque eraser/needle arc crosses them.
+        drawArcCaps(gaugeNeedle);
+
         // Push arc then ticks over top
         gaugeNeedle.pushSprite(DISPLAY_CENTER_X - GAUGE_RADIUS, 0, TFT_TRANSPARENT);
         //gaugeTicks.pushSprite(DISPLAY_CENTER_X - GAUGE_RADIUS, 0, TFT_TRANSPARENT);
@@ -308,31 +335,26 @@ private:
         gaugeValue.setFreeFont(FONT_BOLD_18);
         gaugeValue.setTextColor(valueColor, DISPLAY_BG_COLOR);
 
-        if (valueType == "int") {
+        if (valueDecimals == 0) {
             int intVal = (int)round(val);
             int textWidth = gaugeValue.textWidth(String(intVal));
             int x = (VALUE_WIDTH - textWidth) / 2;
             gaugeValue.drawNumber(intVal, x, 0);
         } else {
-            int textWidth = gaugeValue.textWidth(String(val, 1));
+            int textWidth = gaugeValue.textWidth(String(val, static_cast<unsigned int>(valueDecimals)));
             int x = (VALUE_WIDTH - textWidth) / 2;
-            gaugeValue.drawFloat(val, 1, x, 0);
+            gaugeValue.drawFloat(val, valueDecimals, x, 0);
         }
         gaugeValue.pushSprite(VALUE_X, VALUE_Y + GAUGE_MARGIN_TOP);
         gaugeValue.unloadFont();
     }
 
     double calculateAngle(double value) {
-        double angle = (double)GAUGE_START_ANGLE + ((value / maxValue) * 240.0); // Start angle plus the portion of the gauge based on the value
+        const double range = maxValue - minValue;
+        const double normalized = range > 0.0 ? (value - minValue) / range : 0.0;
+        double angle = (double)GAUGE_START_ANGLE + (normalized * 240.0);
         return constrain(angle, GAUGE_START_ANGLE, GAUGE_END_ANGLE);
     }
-};
-
-String NeedleGauge::gaugeTypes[4][5] = {
-    {"RPM", "", "0", "7000", "int"},
-    {"BOOST", "psi", "0.0", "22.0", "double"},
-    {"TORQUE", "lb-ft", "0", "445", "int"},
-    {"POWER", "hp", "0", "450", "int"}
 };
 
 #endif

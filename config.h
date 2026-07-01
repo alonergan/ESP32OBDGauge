@@ -4,7 +4,7 @@
 /*
   Versioning and other descriptors
 */
-#define SOFTWARE_VERSION "0.1"
+#define SOFTWARE_VERSION "0.2"
 #define DEVICE_DESCRIPTION "ESP32 DevKitC-V1"
 
 /*
@@ -14,6 +14,8 @@
 
 
 /*
+
+
   Bluetooth config
 */
 #define BLUETOOTH_DEVICE_ADDRESS "8c:de:52:dc:5d:2a"         // OBDII BLE device MAC address
@@ -29,17 +31,38 @@
 #define DISPLAY_CENTER_X DISPLAY_WIDTH / 2
 #define DISPLAY_CENTER_Y DISPLAY_HEIGHT / 2
 #define DISPLAY_BG_COLOR TFT_BLACK
-#define FONT_NORMAL_8 &AudiType_Normal_038pt7b
+
+/*
+  FONTS
+*/
+#define FONT_NORMAL_8  &AudiType_Normal_038pt7b
+#define FONT_NORMAL_10  &AudiType_Normal_0310pt7b
 #define FONT_NORMAL_12 &AudiType_Normal_0312pt7b
 #define FONT_NORMAL_14 &AudiType_Normal_0314pt7b
 #define FONT_NORMAL_16 &AudiType_Normal_0316pt7b
 #define FONT_NORMAL_18 &AudiType_Normal_0318pt7b
-#define FONT_BOLD_8 &AudiType_Bold_038pt7b
+#define FONT_NORMAL_20 &AudiType_Normal_0320pt7b
+#define FONT_NORMAL_22 &AudiType_Normal_0322pt7b
+#define FONT_NORMAL_24 &AudiType_Normal_0324pt7b
+#define FONT_NORMAL_26 &AudiType_Normal_0326pt7b
+#define FONT_NORMAL_28 &AudiType_Normal_0328pt7b
+#define FONT_NORMAL_30 &AudiType_Normal_0330pt7b
+#define FONT_NORMAL_32 &AudiType_Normal_0332pt7b
+
+
+#define FONT_BOLD_8  &AudiType_Bold_038pt7b
+#define FONT_BOLD_10  &AudiType_Bold_0310pt7b
 #define FONT_BOLD_12 &AudiType_Bold_0312pt7b
 #define FONT_BOLD_14 &AudiType_Bold_0314pt7b
 #define FONT_BOLD_16 &AudiType_Bold_0316pt7b
 #define FONT_BOLD_18 &AudiType_Bold_0318pt7b
-
+#define FONT_BOLD_20 &AudiType_Bold_0320pt7b
+#define FONT_BOLD_22 &AudiType_Bold_0322pt7b
+#define FONT_BOLD_24 &AudiType_Bold_0324pt7b
+#define FONT_BOLD_26 &AudiType_Bold_0326pt7b
+#define FONT_BOLD_28 &AudiType_Bold_0328pt7b
+#define FONT_BOLD_30 &AudiType_Bold_0330pt7b
+#define FONT_BOLD_32 &AudiType_Bold_0332pt7b
 
 /*
   Gauge params
