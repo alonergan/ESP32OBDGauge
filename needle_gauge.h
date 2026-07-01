@@ -216,11 +216,22 @@ private:
         gaugeOutline.drawSmoothArc(GAUGE_RADIUS, GAUGE_RADIUS + GAUGE_MARGIN_TOP, GAUGE_RADIUS - GAUGE_LINE_WIDTH - GAUGE_ARC_WIDTH, GAUGE_RADIUS - (GAUGE_LINE_WIDTH * 2) - GAUGE_ARC_WIDTH, GAUGE_START_ANGLE, GAUGE_END_ANGLE, outlineColor, GAUGE_BG_COLOR, true);
         drawArcCaps(gaugeOutline);
 
+        const int labelMaxWidth = ((GAUGE_RADIUS - (GAUGE_LINE_WIDTH * 2) - GAUGE_ARC_WIDTH) * 2) - 10;
         gaugeOutline.setFreeFont(FONT_BOLD_14);
+        if (gaugeOutline.textWidth(valueLabel) > labelMaxWidth) gaugeOutline.setFreeFont(FONT_BOLD_12);
+        if (gaugeOutline.textWidth(valueLabel) > labelMaxWidth) gaugeOutline.setFreeFont(FONT_BOLD_10);
+        if (gaugeOutline.textWidth(valueLabel) > labelMaxWidth) gaugeOutline.setFreeFont(FONT_BOLD_8);
         gaugeOutline.setTextColor(labelColor);
-        int textWidth = gaugeOutline.textWidth(valueLabel);
+        String fittedLabel = valueLabel;
+        if (gaugeOutline.textWidth(fittedLabel) > labelMaxWidth) {
+            while (fittedLabel.length() > 0 && gaugeOutline.textWidth(fittedLabel + "...") > labelMaxWidth) {
+                fittedLabel.remove(fittedLabel.length() - 1);
+            }
+            fittedLabel += "...";
+        }
+        int textWidth = gaugeOutline.textWidth(fittedLabel);
         int x = (GAUGE_WIDTH - textWidth) / 2;
-        gaugeOutline.drawString(valueLabel, x, GAUGE_RADIUS + GAUGE_MARGIN_TOP - 20);
+        gaugeOutline.drawString(fittedLabel, x, GAUGE_RADIUS + GAUGE_MARGIN_TOP - 20);
         gaugeOutline.unloadFont();
 
         gaugeOutline.setFreeFont(FONT_NORMAL_8);

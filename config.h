@@ -14,6 +14,8 @@
 
 
 /*
+
+
   Bluetooth config
 */
 #define BLUETOOTH_DEVICE_ADDRESS "8c:de:52:dc:5d:2a"         // OBDII BLE device MAC address

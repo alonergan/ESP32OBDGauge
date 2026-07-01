@@ -130,7 +130,7 @@ public:
         if (abs(posX - oldX) > 1 || abs(posY - oldY) > 1) {
             drawOutline();
             combined.fillCircle(posX - (gaugeCenterX - GMETER_RADIUS), posY - (gaugeCenterY - GMETER_RADIUS), GMETER_POINT_RADIUS, valueColor);
-            history.fillCircle(posX - (gaugeCenterX - GMETER_RADIUS), posY - (gaugeCenterY - GMETER_RADIUS), GMETER_POINT_RADIUS, valueColor);
+            history.fillCircle(posX - (gaugeCenterX - GMETER_RADIUS), posY - (gaugeCenterY - GMETER_RADIUS), GMETER_POINT_RADIUS, labelColor);
             history.pushSprite(gaugeCenterX - GMETER_RADIUS, gaugeCenterY - GMETER_RADIUS, TFT_TRANSPARENT);
             combined.pushSprite(gaugeCenterX - GMETER_RADIUS, gaugeCenterY - GMETER_RADIUS, TFT_TRANSPARENT);
             oldX = posX;
@@ -220,15 +220,16 @@ private:
 
     void createTextSprite(TFT_eSprite& sprite, const char* text) {
         sprite.setColorDepth(8);
-        sprite.setTextFont(GMETER_TEXT_FONT);
-        sprite.setTextSize(GMETER_TEXT_SIZE);
+        sprite.setFreeFont(FONT_BOLD_8);
+        sprite.setTextSize(1);
         sprite.setTextColor(valueColor);
         int textWidth = sprite.textWidth("0.00");
         int textHeight = sprite.fontHeight();
         sprite.createSprite(textWidth + 10, textHeight + 10);
         sprite.fillSprite(DISPLAY_BG_COLOR);
-        sprite.setCursor((sprite.width() - textWidth) / 2, (sprite.height() - textHeight) / 2);
-        sprite.println(text);
+        sprite.setTextDatum(MC_DATUM);
+        sprite.drawString(text, sprite.width() / 2, sprite.height() / 2);
+        sprite.setTextDatum(TL_DATUM);
     }
 
     void pushCenteredSprite(TFT_eSprite& sprite, int x, int y) {
@@ -263,10 +264,9 @@ private:
 
     void updateTextSprite(TFT_eSprite& sprite, String text) {
         sprite.fillSprite(DISPLAY_BG_COLOR);
-        int textWidth = sprite.textWidth(text);
-        int textHeight = sprite.fontHeight();
-        sprite.setCursor((sprite.width() - textWidth) / 2, (sprite.height() - textHeight) / 2);
-        sprite.println(text);
+        sprite.setTextDatum(MC_DATUM);
+        sprite.drawString(text, sprite.width() / 2, sprite.height() / 2);
+        sprite.setTextDatum(TL_DATUM);
     }
 };
 

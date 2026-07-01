@@ -24,48 +24,31 @@ enum FormulaType {
     FORMULA_REFERENCE_TORQUE_LBFT,
     FORMULA_FUEL_INJECTION_TIMING,
     FORMULA_INSTANT_MPG,
-    FORMULA_AVERAGE_MPG
+    FORMULA_AVERAGE_MPG,
+    FORMULA_CALCULATED_BOOST,
+    FORMULA_CALCULATED_HORSEPOWER
 };
 
 const pidCommandDefinition Commands::commandConfig[] = {
     {"Engine load", "%", "0104", 0.0, 100.0, 1, FORMULA_ENGINE_LOAD, "0"},
     {"Coolant temp", "F", "0105", -40.0, 419.0, 1, FORMULA_TEMP_F, "0"},
-    {"Short fuel trim B1", "%", "0106", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
-    {"Long fuel trim B1", "%", "0107", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
-    {"Short fuel trim B2", "%", "0108", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
-    {"Long fuel trim B2", "%", "0109", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
-    {"Fuel pressure", "psi", "010A", 0.0, 111.0, 1, FORMULA_FUEL_PRESSURE, "0"},
-    {"Intake MAP", "psi", "010B", 0.0, 37.0, 1, FORMULA_PRESSURE_PSI, "0"},
+    {"Short fuel trim", "%", "0106", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
+    {"Long fuel trim", "%", "0107", -100.0, 99.22, 1, FORMULA_FUEL_TRIM, "0"},
     {"Engine RPM", "rpm", "010C", 0.0, 16383.75, 2, FORMULA_RPM, "0"},
     {"Vehicle speed", "mph", "010D", 0.0, 158.0, 1, FORMULA_SPEED_MPH, "0"},
     {"Timing advance", "deg", "010E", -64.0, 63.5, 1, FORMULA_TIMING_ADVANCE, "0"},
-    {"Intake air temp", "F", "010F", -40.0, 419.0, 1, FORMULA_TEMP_F, "0"},
-    {"MAF air flow", "g/s", "0110", 0.0, 655.35, 2, FORMULA_MAF, "0"},
     {"Throttle position", "%", "0111", 0.0, 100.0, 1, FORMULA_ENGINE_LOAD, "0"},
     {"Run time", "s", "011F", 0.0, 65535.0, 2, FORMULA_RUNTIME_SECONDS, "0"},
-    {"Fuel pressure rel vac", "psi", "0122", 0.0, 750.0, 2, FORMULA_FUEL_PRESSURE_REL_VAC, "0"},
-    {"Fuel pressure direct", "psi", "0123", 0.0, 95025.75, 2, FORMULA_FUEL_PRESSURE_DIRECT, "0"},
     {"Barometric pressure", "psi", "0133", 0.0, 37.0, 1, FORMULA_PRESSURE_PSI, "0"},
     {"Absolute load", "%", "0143", 0.0, 25700.0, 2, FORMULA_ABSOLUTE_LOAD, "0"},
-    {"Command equiv ratio", "", "0144", 0.0, 2.0, 2, FORMULA_EQUIV_RATIO, "0"},
     {"Relative throttle", "%", "0145", 0.0, 100.0, 1, FORMULA_ENGINE_LOAD, "0"},
     {"Ambient air temp", "F", "0146", -40.0, 419.0, 1, FORMULA_TEMP_F, "0"},
-    {"Max air flow", "g/s", "0150", 0.0, 2550.0, 1, FORMULA_MAX_MAF, "0"},
-    {"Ethanol fuel", "%", "0152", 0.0, 100.0, 1, FORMULA_ENGINE_LOAD, "0"},
-    {"Abs evap vapor", "psi", "0153", 0.0, 47.5, 2, FORMULA_EVAP_ABS_PRESSURE, "0"},
-    {"Evap vapor pressure", "Pa", "0154", -32767.0, 32768.0, 2, FORMULA_EVAP_VAPOR_PA, "0"},
-    {"Fuel rail pressure", "psi", "0159", 0.0, 95025.75, 2, FORMULA_FUEL_PRESSURE_DIRECT, "0"},
-    {"Relative accel pedal", "%", "015A", 0.0, 100.0, 1, FORMULA_ENGINE_LOAD, "0"},
     {"Engine oil temp", "F", "015C", -40.0, 419.0, 1, FORMULA_TEMP_F, "0"},
-    {"Fuel injection timing", "deg", "015D", -210.0, 301.992, 2, FORMULA_FUEL_INJECTION_TIMING, "0"},
-    {"Engine fuel rate", "Gal/h", "015E", 0.0, 848.7, 2, FORMULA_FUEL_RATE_GPH, "0"},
-    {"Driver demand torque", "%", "0161", -125.0, 125.0, 1, FORMULA_TORQUE_PERCENT, "0"},
     {"Actual engine torque", "%", "0162", -125.0, 125.0, 1, FORMULA_TORQUE_PERCENT, "0"},
-    {"Engine ref torque", "lb-ft", "0163", 0.0, 48338.0, 2, FORMULA_REFERENCE_TORQUE_LBFT, "0"},
-    {"Instant MPG", "mpg", "0110", 0.0, 100.0, 2, FORMULA_INSTANT_MPG, "0"},
-    {"Average MPG", "mpg", "0110", 0.0, 100.0, 2, FORMULA_AVERAGE_MPG, "0"},
     {"Trans temp", "F", "0105", -40.0, 500.0, 1, FORMULA_TEMP_F, "TCM"},
-    {"Trans temp (1)", "F", "01B4", -40.0, 500.0, 1, FORMULA_TEMP_F, "0"}
+    {"Engine ref torque", "lb-ft", "0163", 0.0, 48338.0, 2, FORMULA_REFERENCE_TORQUE_LBFT, "0"},
+    {"Boost", "psi", "", 0.0, 22.0, 0, FORMULA_CALCULATED_BOOST, "0"},
+    {"Horsepower", "hp", "", 0.0, 450.0, 0, FORMULA_CALCULATED_HORSEPOWER, "0"},
 };
 
 const int Commands::commandCount = sizeof(Commands::commandConfig) / sizeof(Commands::commandConfig[0]);
@@ -281,15 +264,15 @@ double Commands::queryCommand(int commandIndex) {
 
 double Commands::getReading(int selectedReading) {
     if (!connected || pWriteChar == nullptr) {
+        lastQueryError = QUERY_NOT_CONNECTED;
         return 0.0;
     }
 
-    const int RPM_INDEX = 8;
+    const int RPM_INDEX = 4;
     const int ENGINE_LOAD_INDEX = 0;
-    const int BARO_INDEX = 17;
-    const int REF_TORQUE_INDEX = 33;
-    const int ACTUAL_TORQUE_INDEX = 32;
-    const int SPEED_INDEX = 9;
+    const int REF_TORQUE_INDEX = 16;
+    const int ACTUAL_TORQUE_INDEX = 14;
+    const int SPEED_INDEX = 5;
 
     switch (selectedReading) {
         case 0:
@@ -297,13 +280,9 @@ double Commands::getReading(int selectedReading) {
         case 1: {
             double rpm = queryCommand(RPM_INDEX);
             double load = queryCommand(ENGINE_LOAD_INDEX);
-            double baro = queryCommand(BARO_INDEX);
             double fRpm = std::min(1.0, (rpm - 1500.0) / (4000.0 - 1500.0));
             fRpm = std::max(0.0, fRpm);
-
-            double boost = 22.0 * (load / 100.0) * fRpm;
-            (void)baro;
-            return boost;
+            return 22.0 * (load / 100.0) * fRpm;
         }
         case 2: {
             double ref = queryCommand(REF_TORQUE_INDEX);
@@ -319,6 +298,7 @@ double Commands::getReading(int selectedReading) {
         case 5:
             return queryCommand(SPEED_INDEX);
         default:
+            lastQueryError = QUERY_INVALID_INDEX;
             return 0.0;
     }
 }
@@ -332,9 +312,9 @@ struct dualGaugeReading Commands::getDualReading() {
         return x;
     }
 
-    const int RPM_INDEX = 8;
-    const int REF_TORQUE_INDEX = 33;
-    const int ACTUAL_TORQUE_INDEX = 32;
+    const int RPM_INDEX = 4;
+    const int REF_TORQUE_INDEX = 16;
+    const int ACTUAL_TORQUE_INDEX = 14;
 
     double rpm = queryCommand(RPM_INDEX);
     double refTorque = queryCommand(REF_TORQUE_INDEX);
@@ -378,7 +358,8 @@ uint8_t Commands::getCommandDecimals(int commandIndex) const {
     if (commandIndex < 0 || commandIndex >= commandCount) return 1;
     const int formula = commandConfig[commandIndex].formula;
     if (formula == FORMULA_RPM || formula == FORMULA_SPEED_MPH ||
-        formula == FORMULA_RUNTIME_SECONDS || formula == FORMULA_TEMP_F) {
+        formula == FORMULA_RUNTIME_SECONDS || formula == FORMULA_TEMP_F ||
+        formula == FORMULA_CALCULATED_HORSEPOWER) {
         return 0;
     }
     return 1;
@@ -393,6 +374,20 @@ double Commands::getValueByCommandIndex(int commandIndex) {
     static bool averageInit = false;
 
     int formula = commandConfig[commandIndex].formula;
+    if (formula == FORMULA_CALCULATED_BOOST) {
+        double rpm = queryCommand(4);
+        double load = queryCommand(0);
+        double rpmFactor = std::min(1.0, (rpm - 1500.0) / 2500.0);
+        rpmFactor = std::max(0.0, rpmFactor);
+        return constrain(22.0 * (load / 100.0) * rpmFactor, 0.0, 22.0);
+    }
+    if (formula == FORMULA_CALCULATED_HORSEPOWER) {
+        double rpm = queryCommand(4);
+        double referenceTorque = queryCommand(16);
+        double actualTorque = queryCommand(14);
+        double torque = referenceTorque * (actualTorque / 100.0);
+        return constrain((torque * rpm) / 5252.0, 0.0, 450.0);
+    }
     if (formula == FORMULA_INSTANT_MPG || formula == FORMULA_AVERAGE_MPG) {
         double speedMph = queryCommand(9);
         double maf = queryCommand(12);
@@ -457,6 +452,10 @@ String Commands::getLastQueryDiagnostic() const {
            " | PID=" + lastQueryPid +
            " | Header=" + lastQueryHeader +
            " | Raw='" + rawResponse + "'";
+}
+
+bool Commands::wasLastQuerySuccessful() const {
+    return lastQueryError == QUERY_OK;
 }
 
 void Commands::initializeOBD() {}

@@ -3,6 +3,7 @@
 
 #include "gauge.h"
 #include "commands.h"
+#include "ui_library.h"
 
 class QuadrantGauge : public Gauge {
 public:
@@ -96,25 +97,17 @@ public:
         int localX = x;
         int localY = y;
 
-        const int rowHeight = 36;
-        const int top = 8;
-        const int bottomButtonY = DISPLAY_HEIGHT - 44;
-        const int visibleRows = (bottomButtonY - top) / rowHeight;
+        const int rowHeight = 32;
+        const int top = 24;
+        const int bottomButtonY = 198;
+        const int visibleRows = 5;
 
-        if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= 10 && localX < 145) {
-            if (!shouldProcessSelectorButton(0)) {
-                return true;
-            }
-            pageStart = max(0, pageStart - visibleRows);
-            return true;
-        }
-
-        if (localY >= bottomButtonY && localY < bottomButtonY + 34 && localX >= (DISPLAY_WIDTH - 145) && localX < (DISPLAY_WIDTH - 10)) {
-            if (!shouldProcessSelectorButton(1)) {
-                return true;
-            }
-            int maxStart = max(0, commands->getCommandCount() - visibleRows);
-            pageStart = min(maxStart, pageStart + visibleRows);
+        if (localY >= bottomButtonY && localY < bottomButtonY + 36) {
+            int buttonId = localX < 105 ? 0 : (localX < 210 ? 1 : 2);
+            if (!shouldProcessSelectorButton(buttonId)) return true;
+            if (buttonId == 0) pageStart = max(0, pageStart - visibleRows);
+            else if (buttonId == 1) pageStart = min(max(0, commands->getCommandCount() - visibleRows), pageStart + visibleRows);
+            else { selectorOpen = false; drawQuadrants(); }
             return true;
         }
 
@@ -226,7 +219,7 @@ private:
             drawCenteredFittedText(label, textCenterX, originY + 8, textMaxWidth);
             screen.unloadFont();
 
-            screen.setFreeFont(FONT_BOLD_24);
+            screen.setFreeFont(FONT_BOLD_22);
             String valueText = String(values[i], 1);
             screen.setTextColor(valueColor, DISPLAY_BG_COLOR);
             screen.setTextDatum(MC_DATUM);
@@ -245,18 +238,17 @@ private:
 
     void drawSelector() {
         selector.fillSprite(TFT_BLACK);
-        selector.drawRect(0, 0, selector.width(), selector.height(), TFT_WHITE);
         selector.setTextColor(TFT_WHITE);
-        selector.setFreeFont(FONT_BOLD_8);
+        selector.setTextFont(2);
+        selector.setTextSize(1);
 
-        const int rowHeight = 36;
-        const int top = 8;
-        const int bottomButtonMargin = 10;
-        const int bottomButtonY = selector.height() - 44;
-        const int bottomButtonX = 10;
-        const int bottomButtonWidth = 135;
-        const int bottomButtonHeight = 34;
-        const int visibleRows = (bottomButtonY - top) / rowHeight;
+        const int rowHeight = 32;
+        const int top = 24;
+        const int bottomButtonY = 198;
+        const int visibleRows = 5;
+        selector.setTextDatum(TC_DATUM);
+        selector.drawString("Quadrant " + String(selectedQuadrant + 1), DISPLAY_CENTER_X, 3);
+        selector.setTextDatum(ML_DATUM);
 
         for (int i = 0; i < visibleRows; i++) {
             int commandIndex = pageStart + i;
@@ -267,13 +259,12 @@ private:
             int rowY = top + i * rowHeight;
             bool active = (selectedCommands[selectedQuadrant] == commandIndex);
             uint16_t bg = active ? TFT_DARKGREEN : TFT_BLACK;
-            selector.fillRect(6, rowY, selector.width() - 12, rowHeight - 3, bg);
-            selector.drawRect(6, rowY, selector.width() - 12, rowHeight - 3, TFT_WHITE);
-            selector.drawRect(7, rowY + 1, selector.width() - 14, rowHeight - 5, TFT_WHITE);
+            selector.fillRect(5, rowY, 310, rowHeight - 2, bg);
+            selector.drawRect(5, rowY, 310, rowHeight - 2, TFT_WHITE);
 
             String originalLabel = commands->getCommandLabel(commandIndex);
             String rowLabel = originalLabel;
-            const int rowTextMaxWidth = selector.width() - 28;
+            const int rowTextMaxWidth = 294;
             if (selector.textWidth(originalLabel) > rowTextMaxWidth) {
                 while (rowLabel.length() > 0 && selector.textWidth(rowLabel + "...") > rowTextMaxWidth) {
                     rowLabel.remove(rowLabel.length() - 1);
@@ -281,23 +272,15 @@ private:
                 rowLabel += "...";
             }
             selector.setTextDatum(ML_DATUM);
-            selector.drawString(rowLabel, 12, rowY + ((rowHeight - 3) / 2));
+            selector.drawString(rowLabel, 12, rowY + ((rowHeight - 2) / 2));
         }
 
-        selector.fillRect(bottomButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_BLACK);
-        selector.drawRect(bottomButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_WHITE);
-        selector.drawRect(bottomButtonX + 1, bottomButtonY + 1, bottomButtonWidth - 2, bottomButtonHeight - 2, TFT_WHITE);
-        selector.setTextDatum(MC_DATUM);
-        selector.drawString("Prev", bottomButtonX + (bottomButtonWidth / 2), bottomButtonY + (bottomButtonHeight / 2));
-
-        const int nextButtonX = selector.width() - bottomButtonWidth - bottomButtonMargin;
-        selector.fillRect(nextButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_BLACK);
-        selector.drawRect(nextButtonX, bottomButtonY, bottomButtonWidth, bottomButtonHeight, TFT_WHITE);
-        selector.drawRect(nextButtonX + 1, bottomButtonY + 1, bottomButtonWidth - 2, bottomButtonHeight - 2, TFT_WHITE);
-        selector.drawString("Next", nextButtonX + (bottomButtonWidth / 2), bottomButtonY + (bottomButtonHeight / 2));
-
         selector.setTextDatum(TL_DATUM);
-        selector.unloadFont();
+        const char* nav[] = {"Prev", "Next", "Exit"};
+        for (int i = 0; i < 3; i++) {
+            UIButton button(i, nav[i], {static_cast<int16_t>(5 + i * 105), bottomButtonY, 100, 36});
+            button.draw(selector);
+        }
         selector.pushSprite(0, 0);
     }
 };

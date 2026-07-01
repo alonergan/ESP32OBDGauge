@@ -13,64 +13,66 @@ public:
         speedLabel(display),
         message(display),
         latestSpeed(0.0),
+        speedAvailable(false),
+        displayedSpeedAvailable(false),
         displayedSpeed(-1),
         previousSpeed(0.0),
         runTimeSeconds(0.0),
         stationaryStartMs(0),
         startTimeUs(0),
         previousTimeUs(0),
-        stage(WAIT_STATIONARY),
-        outlineColor(outlineColor),
-        labelColor(labelColor),
-        valueColor(valueColor) {}
+        stage(WAIT_STATIONARY) {
+        (void)outlineColor; (void)labelColor; (void)valueColor;
+    }
 
     void initialize() override {
         display->fillScreen(DISPLAY_BG_COLOR);
-        display->drawRect(0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT, outlineColor);
 
         speed.setColorDepth(8);
-        speed.setTextSize(7);
-        speed.setTextFont(1);
-        speed.setTextColor(valueColor, DISPLAY_BG_COLOR);
-        speed.createSprite(speed.textWidth("188"), speed.fontHeight());
+        speed.setFreeFont(FONT_BOLD_30);
+        speed.setTextColor(TFT_RED, DISPLAY_BG_COLOR);
+        speed.createSprite(SPEED_VALUE_WIDTH, speed.fontHeight() + VALUE_VERTICAL_PADDING);
+        speed.unloadFont();
+        displayedSpeed = -1;
 
-        speedLabel.setColorDepth(8);
-        speedLabel.setTextFont(1);
-        speedLabel.setTextSize(3);
-        speedLabel.setTextColor(labelColor);
+        speedLabel.setColorDepth(1);
+        speedLabel.setFreeFont(FONT_BOLD_16);
+        speedLabel.setTextColor(TFT_WHITE);
         speedLabel.createSprite(speedLabel.textWidth(AMETER_SPEED_LABEL), speedLabel.fontHeight());
-        speedLabel.setCursor(0, 0);
-        speedLabel.println(AMETER_SPEED_LABEL);
+        speedLabel.drawString(AMETER_SPEED_LABEL, 0, 0);
+        speedLabel.unloadFont();
 
         time.setColorDepth(8);
-        time.setTextSize(5);
-        time.setTextFont(1);
-        time.setTextColor(valueColor, DISPLAY_BG_COLOR);
-        time.createSprite(time.textWidth("00.000"), time.fontHeight());
+        time.setFreeFont(FONT_BOLD_22);
+        time.setTextColor(AMETER_TIME_COLOR, DISPLAY_BG_COLOR);
+        time.createSprite(TIME_VALUE_WIDTH, time.fontHeight() + VALUE_VERTICAL_PADDING);
+        time.unloadFont();
 
-        timeLabel.setColorDepth(8);
-        timeLabel.setTextFont(1);
-        timeLabel.setTextSize(3);
-        timeLabel.setTextColor(labelColor);
+        timeLabel.setColorDepth(1);
+        timeLabel.setFreeFont(FONT_BOLD_12);
+        timeLabel.setTextColor(TFT_WHITE);
         timeLabel.createSprite(timeLabel.textWidth(AMETER_TIME_LABEL), timeLabel.fontHeight());
-        timeLabel.setCursor(0, 0);
-        timeLabel.println(AMETER_TIME_LABEL);
+        timeLabel.drawString(AMETER_TIME_LABEL, 0, 0);
+        timeLabel.unloadFont();
 
         message.setColorDepth(8);
-        message.setTextFont(2);
-        message.setTextSize(1);
-        message.setTextColor(labelColor, DISPLAY_BG_COLOR);
+        message.setTextColor(TFT_YELLOW, DISPLAY_BG_COLOR);
         message.createSprite(DISPLAY_WIDTH, 20);
 
-        speedLabel.pushSprite((DISPLAY_WIDTH - speedLabel.width()) / 2, 60 - speedLabel.height() - AMETER_V_PADDING);
-        timeLabel.pushSprite((DISPLAY_WIDTH - timeLabel.width()) / 2, 175 - timeLabel.height() - AMETER_V_PADDING);
+        pushCenteredAt(speedLabel, SPEED_LABEL_CENTER_Y);
+        pushCenteredAt(timeLabel, TIME_LABEL_CENTER_Y);
 
         drawSpeed((int)round(latestSpeed));
-        drawTime(runTimeSeconds, valueColor);
+        drawTime(runTimeSeconds, stage == FINISHED ? TFT_GREEN : AMETER_TIME_COLOR);
         drawMessageForStage();
     }
 
-    void setSpeed(double speedVal) {
+    void setSpeed(double speedVal, bool available = true) {
+        speedAvailable = available && isfinite(speedVal) && speedVal >= 0.0;
+        if (!speedAvailable) {
+            speedVal = 0;
+        }
+
         latestSpeed = speedVal;
     }
 
@@ -79,6 +81,14 @@ public:
         unsigned long long nowUs = micros();
 
         drawSpeed((int)round(latestSpeed));
+
+        if (speedAvailable != displayedSpeedAvailable) {
+            displayedSpeedAvailable = speedAvailable;
+            drawMessageForStage();
+        }
+        if (!speedAvailable) {
+            return;
+        }
 
         switch (stage) {
             case WAIT_STATIONARY:
@@ -89,7 +99,7 @@ public:
                     if (nowMs - stationaryStartMs >= 3000) {
                         stage = READY;
                         runTimeSeconds = 0.0;
-                        drawTime(runTimeSeconds, valueColor);
+                        drawTime(runTimeSeconds, AMETER_TIME_COLOR);
                         drawMessageForStage();
                     }
                 } else {
@@ -117,10 +127,10 @@ public:
                         runTimeSeconds = (double)(crossedUs - startTimeUs) / 1000000.0;
                     }
                     stage = FINISHED;
-                    drawTime(runTimeSeconds, valueColor);
+                    drawTime(runTimeSeconds, TFT_GREEN);
                     drawMessageForStage();
                 } else {
-                    drawTime(runTimeSeconds, valueColor);
+                    drawTime(runTimeSeconds, AMETER_TIME_COLOR);
                 }
 
                 previousSpeed = latestSpeed;
@@ -156,17 +166,27 @@ public:
     }
 
     void setThemeColors(uint16_t label, uint16_t value, uint16_t outline) override {
-        labelColor = label; valueColor = value; outlineColor = outline;
+        (void)label; (void)value; (void)outline;
     }
-    uint32_t getCurrentLabelColor() override { return labelColor; }
-    uint32_t getCurrentOutlineColor() override { return outlineColor; }
-    uint32_t getCurrentValueColor() override { return valueColor; }
+    uint32_t getCurrentLabelColor() override { return TFT_WHITE; }
+    uint32_t getCurrentOutlineColor() override { return TFT_WHITE; }
+    uint32_t getCurrentValueColor() override { return TFT_RED; }
 
 private:
     enum MeterStage { WAIT_STATIONARY, READY, RUNNING, FINISHED };
 
+    static const int SPEED_VALUE_WIDTH = 140;
+    static const int TIME_VALUE_WIDTH = 200;
+    static const int VALUE_VERTICAL_PADDING = 10;
+    static const int SPEED_LABEL_CENTER_Y = 28;
+    static const int SPEED_VALUE_CENTER_Y = 80;
+    static const int TIME_LABEL_CENTER_Y = 143;
+    static const int TIME_VALUE_CENTER_Y = 185;
+
     TFT_eSprite time, speed, timeLabel, speedLabel, message;
     double latestSpeed;
+    bool speedAvailable;
+    bool displayedSpeedAvailable;
     int displayedSpeed;
     double previousSpeed;
     double runTimeSeconds;
@@ -174,9 +194,10 @@ private:
     unsigned long long startTimeUs;
     unsigned long long previousTimeUs;
     MeterStage stage;
-    uint16_t outlineColor;
-    uint16_t labelColor;
-    uint16_t valueColor;
+
+    void pushCenteredAt(TFT_eSprite& sprite, int centerY) {
+        sprite.pushSprite((DISPLAY_WIDTH - sprite.width()) / 2, centerY - sprite.height() / 2);
+    }
 
     void drawSpeed(int speedInt) {
         if (speedInt == displayedSpeed) {
@@ -185,11 +206,12 @@ private:
 
         String text = String(speedInt);
         speed.fillSprite(DISPLAY_BG_COLOR);
-        int textWidth = speed.textWidth(text);
-        int textHeight = speed.fontHeight();
-        speed.setCursor((speed.width() - textWidth) / 2, (speed.height() - textHeight) / 2);
-        speed.println(text);
-        speed.pushSprite((DISPLAY_WIDTH - speed.width()) / 2, 60);
+        speed.setFreeFont(FONT_BOLD_30);
+        speed.setTextDatum(MC_DATUM);
+        speed.drawString(text, speed.width() / 2, speed.height() / 2);
+        speed.setTextDatum(TL_DATUM);
+        speed.unloadFont();
+        pushCenteredAt(speed, SPEED_VALUE_CENTER_Y);
         displayedSpeed = speedInt;
     }
 
@@ -199,33 +221,41 @@ private:
         String text(timeStr);
 
         time.fillSprite(DISPLAY_BG_COLOR);
+        time.setFreeFont(FONT_BOLD_22);
         time.setTextColor(color, DISPLAY_BG_COLOR);
-        int textWidth = time.textWidth(text);
-        int textHeight = time.fontHeight();
-        time.setCursor((time.width() - textWidth) / 2, (time.height() - textHeight) / 2);
-        time.println(text);
-        time.pushSprite((DISPLAY_WIDTH - time.width()) / 2, 175);
+        time.setTextDatum(MC_DATUM);
+        time.drawString(timeStr, time.width() / 2, time.height() / 2);
+        time.setTextDatum(TL_DATUM);
+        time.unloadFont();
+        pushCenteredAt(time, TIME_VALUE_CENTER_Y);
     }
 
     void drawMessageForStage() {
         const char* text = "";
-        uint16_t color = labelColor;
+        uint16_t color = TFT_YELLOW;
 
-        if (stage == WAIT_STATIONARY) {
+        if (!speedAvailable) {
+            text = "Unable to read vehicle speed";
+        } else if (stage == WAIT_STATIONARY) {
             text = "Keep vehicle still for 3s to arm";
         } else if (stage == READY) {
             text = "Ready - accelerate to start";
+            color = TFT_CYAN;
         } else if (stage == RUNNING) {
             text = "Measuring 0-60...";
+            color = TFT_ORANGE;
         } else if (stage == FINISHED) {
             text = "Done - tap reset button";
+            color = TFT_GREEN;
         }
 
         message.fillSprite(DISPLAY_BG_COLOR);
+        message.setFreeFont(FONT_NORMAL_8);
         message.setTextColor(color, DISPLAY_BG_COLOR);
-        int textWidth = message.textWidth(text);
-        message.setCursor((DISPLAY_WIDTH - textWidth) / 2, 4);
-        message.println(text);
+        message.setTextDatum(MC_DATUM);
+        message.drawString(text, DISPLAY_WIDTH / 2, 8);
+        message.setTextDatum(TL_DATUM);
+        message.unloadFont();
         message.pushSprite(0, DISPLAY_HEIGHT - message.height());
     }
 };

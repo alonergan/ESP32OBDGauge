@@ -56,6 +56,7 @@ public:
     double getCommandMax(int commandIndex) const;
     uint8_t getCommandDecimals(int commandIndex) const;
     double getValueByCommandIndex(int commandIndex);
+    bool wasLastQuerySuccessful() const;
     String getLastQueryDiagnostic() const;
 };
 
