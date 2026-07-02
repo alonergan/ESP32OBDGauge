@@ -2,9 +2,45 @@
 #define CONFIG_H
 
 /*
+  Include fonts
+*/
+
+// TFT_eSPI must be included first so its LOAD_GFXFF path defines GFXglyph and
+// GFXfont before the generated project-local font headers are parsed.
+#include <TFT_eSPI.h>
+
+#include "Fonts/AudiType_Normal_038pt7b.h"
+#include "Fonts/AudiType_Normal_0310pt7b.h"
+#include "Fonts/AudiType_Normal_0312pt7b.h"
+#include "Fonts/AudiType_Normal_0314pt7b.h"
+#include "Fonts/AudiType_Normal_0316pt7b.h"
+#include "Fonts/AudiType_Normal_0318pt7b.h"
+#include "Fonts/AudiType_Normal_0320pt7b.h"
+#include "Fonts/AudiType_Normal_0322pt7b.h"
+#include "Fonts/AudiType_Normal_0324pt7b.h"
+#include "Fonts/AudiType_Normal_0326pt7b.h"
+#include "Fonts/AudiType_Normal_0328pt7b.h"
+#include "Fonts/AudiType_Normal_0330pt7b.h"
+#include "Fonts/AudiType_Normal_0332pt7b.h"
+
+#include "Fonts/AudiType_Bold_038pt7b.h"
+#include "Fonts/AudiType_Bold_0310pt7b.h"
+#include "Fonts/AudiType_Bold_0312pt7b.h"
+#include "Fonts/AudiType_Bold_0314pt7b.h"
+#include "Fonts/AudiType_Bold_0316pt7b.h"
+#include "Fonts/AudiType_Bold_0318pt7b.h"
+#include "Fonts/AudiType_Bold_0320pt7b.h"
+#include "Fonts/AudiType_Bold_0322pt7b.h"
+#include "Fonts/AudiType_Bold_0324pt7b.h"
+#include "Fonts/AudiType_Bold_0326pt7b.h"
+#include "Fonts/AudiType_Bold_0328pt7b.h"
+#include "Fonts/AudiType_Bold_0330pt7b.h"
+#include "Fonts/AudiType_Bold_0332pt7b.h"
+
+/*
   Versioning and other descriptors
 */
-#define SOFTWARE_VERSION "0.2"
+#define SOFTWARE_VERSION "1.0.0"
 #define DEVICE_DESCRIPTION "ESP32 DevKitC-V1"
 
 /*
@@ -12,10 +48,7 @@
 */
 #define BUTTON_PIN 14
 
-
 /*
-
-
   Bluetooth config
 */
 #define BLUETOOTH_DEVICE_ADDRESS "8c:de:52:dc:5d:2a"         // OBDII BLE device MAC address
@@ -48,7 +81,6 @@
 #define FONT_NORMAL_28 &AudiType_Normal_0328pt7b
 #define FONT_NORMAL_30 &AudiType_Normal_0330pt7b
 #define FONT_NORMAL_32 &AudiType_Normal_0332pt7b
-
 
 #define FONT_BOLD_8  &AudiType_Bold_038pt7b
 #define FONT_BOLD_10  &AudiType_Bold_0310pt7b
